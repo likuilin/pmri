@@ -21,5 +21,7 @@ Install (ubuntu): `sudo apt install libgtest-dev libgoogle-glog-dev libnuma-dev`
 
 Segfault on dereferencing 0xffffffffffffffff? Sigh
 
+I am trying to work if we can still use their PWmCAS.
+
 === Giving up, let's re-implement PWmCAS!
 

@@ -1,4 +1,24 @@
-layout_file
-*.o
-pmwcas
+*.sdf
+*.suo
+*.opensdf
+*.vcxproj.user
+*.swp
+*.swo
 
+Release/
+Debug/
+x64/
+build/
+_build/
+
+__pycache__
+
+Rplot*
+.Rproj.user
+
+tags
+tags.vim
+.idea
+cmake-build*
+.vscode
+release

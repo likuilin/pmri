@@ -290,6 +290,7 @@ if(${GOOGLE_FRAMEWORK})
     gflags
     gtest
     double-linked-list
+    bztree
   )
 endif()
 
@@ -368,6 +369,7 @@ add_subdirectory(src/benchmarks)
 add_subdirectory(src/mwcas)
 if (${BUILD_APPS})
   add_subdirectory(src/double-linked-list)
+  add_subdirectory(src/bztree)
 endif()
 
 # Generate a shared library for applications to link

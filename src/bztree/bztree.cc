@@ -8,21 +8,17 @@ BzTree::BzTree() {
   auto allocator = reinterpret_cast<PMDKAllocator*>(Allocator::Get());
   pop = allocator->GetPool();
 
-  TOID(struct BzRootObj) root = POBJ_ROOT(pop, struct BzRootObj);
+  pmdkroot = POBJ_ROOT(pop, struct BzPMDKRootObj);
 
   TX_BEGIN(pop) {
-    TX_ADD(root);
-    desc_pool = D_RO(root)->desc_pool;
-    root_node = D_RO(root)->root_node;
-
-    if (D_RO(desc_pool) == nullptr || D_RO(root_node) == nullptr) {
+    TX_ADD(pmdkroot);
+    if (D_RO(D_RO(pmdkroot)->desc_pool) == nullptr || D_RO(D_RO(pmdkroot)->root_node) == nullptr) {
       // new bztree, initialize it
-      TX_ADD(root);
-      desc_pool = D_RW(root)->desc_pool = TX_NEW(DescriptorPool);
-      root_node = D_RW(root)->root_node = TX_NEW(struct Node);
+      D_RW(pmdkroot)->desc_pool = TX_NEW(DescriptorPool);
+      D_RW(pmdkroot)->root_node = TX_NEW(struct Node);
+      D_RW(pmdkroot)->height = 1;
     }
-  }
-  TX_ONABORT { printf("bztree init fail"); } TX_END
+  } TX_END
 #else
 #error "Non-PMDK not implemented"
 #endif  // PMDK

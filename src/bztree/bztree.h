@@ -32,17 +32,20 @@ POBJ_LAYOUT_BEGIN(bztree_layout);
 POBJ_LAYOUT_ROOT(bztree_layout, struct BzRootObj);
 POBJ_LAYOUT_TOID(bztree_layout, DescriptorPool);
 POBJ_LAYOUT_TOID(bztree_layout, struct Node);
+POBJ_LAYOUT_TOID(bztree_layout, struct BzPMDKRootObj);
 POBJ_LAYOUT_END(bztree_layout);
 
 // ref figure 2 for these
 #pragma pack(1)
 struct NodeHeader {
   uint32_t node_size    : 32;
-  uint8_t control       : 3;
-  bool frozen           : 1;
-  uint16_t record_count : 16;
-  uint32_t block_size   : 22;
-  uint32_t delete_size  : 22;
+  // status word {
+    uint8_t control       : 3;
+    bool frozen           : 1;
+    uint16_t record_count : 16;
+    uint32_t block_size   : 22;
+    uint32_t delete_size  : 22;
+  // }
   uint32_t sorted_count : 32;
 };
 static_assert(sizeof(struct NodeHeader) == 16);
@@ -65,9 +68,10 @@ struct Node {
 static_assert(sizeof(struct Node) == BZTREE_NODE_SIZE);
 
 // root object contains descriptor pool and ptr to root node
-struct BzRootObj {
+struct BzPMDKRootObj {
   TOID(DescriptorPool) desc_pool;
   TOID(struct Node) root_node;
+  uint64_t height;
 };
 
 class BzTree {
@@ -104,7 +108,6 @@ class BzTree {
   private:
     PMEMobjpool *pop;
 
-    TOID(DescriptorPool) desc_pool;
-    TOID(struct Node) root_node;
+    TOID(struct BzPMDKRootObj) pmdkroot;
 };
 }  // namespace pmwcas

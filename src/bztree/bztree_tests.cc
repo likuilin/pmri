@@ -8,14 +8,6 @@ namespace test {
 
 // most test patterns shamelessly borrowed from lab 3's BTree tests
 
-#define BZTREE_MAX_NODES 10000
-
-// root object contains descriptor pool and data
-struct PMDKRootObj {
-  DescriptorPool *desc_pool{nullptr};
-  void *buf{nullptr};
-};
-
 // convert test uint64_t key to variable length vector<uint8_t> key
 std::vector<uint8_t> convertKey(uint64_t k) {
   // undefined behavior by the way
@@ -24,32 +16,22 @@ std::vector<uint8_t> convertKey(uint64_t k) {
 }
 
 struct SingleThreadTest {
-  BzTree *tree;
+  BzTree tree;
 
   SingleThreadTest() {
-    auto allocator = reinterpret_cast<PMDKAllocator*>(Allocator::Get());
-    auto root_obj = reinterpret_cast<PMDKRootObj*>(allocator->GetRoot(sizeof(PMDKRootObj)));
-    Allocator::Get()->Allocate((void **)&root_obj->desc_pool, sizeof(DescriptorPool));
-    Allocator::Get()->Allocate(&root_obj->buf, BZTREE_NODE_SIZE*BZTREE_MAX_NODES);
-
-    tree = new BzTree(root_obj->desc_pool, root_obj->buf, BZTREE_MAX_NODES);
-
-    // MwCASMetrics::ThreadInitialize();
+    MwCASMetrics::ThreadInitialize();
   }
 
   ~SingleThreadTest() {
     Thread::ClearRegistry();
   }
-
-  void TestLookupEmptyTree() {
-    auto test = "searching for a non-existing element in an empty B-Tree";
-    ASSERT_FALSE(tree->lookup(convertKey(42))) << test << " seems to return something :-O";
-  }
 };
 
 GTEST_TEST(BzTreeTest, LookupEmptyTree) {
   std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
-  t->TestLookupEmptyTree();
+
+  auto test = "searching for a non-existing element in an empty B-Tree";
+  ASSERT_FALSE(t->tree.lookup(convertKey(42))) << test << " seems to return something :-O";
 }
 
 } // namespace test

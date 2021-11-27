@@ -2,17 +2,30 @@
 
 namespace pmwcas {
 
-void BzTree::insert(uint64_t key, uint64_t value) {
-  // todo
+BzTree::BzTree(DescriptorPool *desc_pool_, void *buf_, size_t max_nodes_)
+    : desc_pool(desc_pool_), max_nodes(max_nodes_) {
+  header = reinterpret_cast<NodeHeader *>(buf_);
+  metadata = reinterpret_cast<NodeMetadata *>(header + 1);
 }
 
-std::optional<uint64_t> BzTree::lookup(uint64_t key) {
+bool BzTree::insert(const std::vector<uint8_t> key, uint64_t value) {
+  // todo
+  return true;
+}
+
+bool BzTree::update(const std::vector<uint8_t> key, uint64_t value) {
+  // todo
+  return true;
+}
+
+std::optional<uint64_t> BzTree::lookup(const std::vector<uint8_t> key) {
   // todo
   return 10;
 }
 
-void BzTree::erase(uint64_t key) {
+bool BzTree::erase(const std::vector<uint8_t> key) {
   // todo
+  return true;
 }
 
 // post increment

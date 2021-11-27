@@ -6,11 +6,13 @@ For simplicity of building, we just fork pmwcas and build our application inside
 
 # Setup
 
-Deps: `sudo apt-get install cmake clang-3.8 build-essential llvm libgtest-dev libgoogle-glog-dev libnuma-dev`
+Deps: `sudo apt-get install cmake build-essential llvm libgtest-dev libgoogle-glog-dev libnuma-dev libpmemobj-dev`
+
+To get libpmemobj.so in the right place: `sudo ln -s $(dpkg -L libpmemobj-dev | grep "/libpmemobj.so") /usr/local/lib/libpmemobj.so`
 
 * `git submodule update --init --recursive` to get pmwcas deps
 * `mkdir build` and `cd build`
-* `cmake -DPMEM_BACKEND=Emu -DCMAKE_BUILD_TYPE=RelWithDebInfo ..`
+* `cmake -DPMEM_BACKEND=PMDK -DCMAKE_BUILD_TYPE=RelWithDebInfo ..`
 * `make -j8`
 * Each reboot: `echo 4096 | sudo tee /proc/sys/vm/nr_hugepages` to reserve necessary huge pages*
 * Test pmwcas by doing `./mwcas_shm_server` and then in a separate terminal `./mwcas_tests`, if it works, yay

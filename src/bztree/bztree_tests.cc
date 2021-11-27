@@ -8,56 +8,48 @@ namespace test {
 
 // most test patterns shamelessly borrowed from lab 3's BTree tests
 
+#define BZTREE_MAX_NODES 10000
+
+// root object contains descriptor pool and data
+struct PMDKRootObj {
+  DescriptorPool *desc_pool{nullptr};
+  void *buf{nullptr};
+};
+
+// convert test uint64_t key to variable length vector<uint8_t> key
+std::vector<uint8_t> convertKey(uint64_t k) {
+  // undefined behavior by the way
+  uint8_t *ptr = reinterpret_cast<uint8_t*>(&k);
+  return std::vector<uint8_t>(ptr, ptr + 8);
+}
+
+struct SingleThreadTest {
+  BzTree *tree;
+
+  SingleThreadTest() {
+    auto allocator = reinterpret_cast<PMDKAllocator*>(Allocator::Get());
+    auto root_obj = reinterpret_cast<PMDKRootObj*>(allocator->GetRoot(sizeof(PMDKRootObj)));
+    Allocator::Get()->Allocate((void **)&root_obj->desc_pool, sizeof(DescriptorPool));
+    Allocator::Get()->Allocate(&root_obj->buf, BZTREE_NODE_SIZE*BZTREE_MAX_NODES);
+
+    tree = new BzTree(root_obj->desc_pool, root_obj->buf, BZTREE_MAX_NODES);
+
+    // MwCASMetrics::ThreadInitialize();
+  }
+
+  ~SingleThreadTest() {
+    Thread::ClearRegistry();
+  }
+
+  void TestLookupEmptyTree() {
+    auto test = "searching for a non-existing element in an empty B-Tree";
+    ASSERT_FALSE(tree->lookup(convertKey(42))) << test << " seems to return something :-O";
+  }
+};
+
 GTEST_TEST(BzTreeTest, LookupEmptyTree) {
-  BzTree tree;
-
-  auto test = "searching for a non-existing element in an empty B-Tree";
-  ASSERT_FALSE(tree.lookup(42)) << test << " seems to return something :-O";
-
-  Thread::ClearRegistry();
-}
-
-GTEST_TEST(BzTreeTest, LookupSingleLeaf) {
-  BzTree tree;
-
-  // Fill one page
-  for (auto i = 0ul; i < BzTree::kCapacity; ++i) {
-    tree.insert(i, 2 * i);
-    ASSERT_TRUE(tree.lookup(i))
-        << "searching for the just inserted key k=" << i << " yields nothing";
-  }
-
-  // Lookup all values
-  for (auto i = 0ul; i < BzTree::kCapacity; ++i) {
-    auto v = tree.lookup(i);
-    ASSERT_TRUE(v) << "key=" << i << " is missing";
-    ASSERT_EQ(*v, 2 * i) << "key=" << i << " should have the value v=" << 2 * i;
-  }
-
-  Thread::ClearRegistry();
-}
-
-GTEST_TEST(BzTreeTest, LookupSingleSplit) {
-  BzTree tree;
-
-  // Insert values
-  for (auto i = 0ul; i < BzTree::kCapacity; ++i) {
-    tree.insert(i, 2 * i);
-  }
-
-  tree.insert(BzTree::kCapacity, 2 * BzTree::kCapacity);
-  ASSERT_TRUE(tree.lookup(BzTree::kCapacity))
-      << "searching for the just inserted key k="
-      << (BzTree::kCapacity + 1) << " yields nothing";
-
-  // Lookup all values
-  for (auto i = 0ul; i < BzTree::kCapacity + 1; ++i) {
-    auto v = tree.lookup(i);
-    ASSERT_TRUE(v) << "key=" << i << " is missing";
-    ASSERT_EQ(*v, 2 * i) << "key=" << i << " should have the value v=" << 2 * i;
-  }
-
-  Thread::ClearRegistry();
+  std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+  t->TestLookupEmptyTree();
 }
 
 } // namespace test
@@ -74,9 +66,9 @@ int main(int argc, char** argv) {
                            pmwcas::WindowsEnvironment::Destroy);
 #else
 #ifdef PMDK
-  pmwcas::InitLibrary(pmwcas::PMDKAllocator::Create("doubly_linked_test_pool",
-                                                    "doubly_linked_layout",
-                                                    static_cast<uint64_t >(1024) * 1024 * 1204 * 5),
+  pmwcas::InitLibrary(pmwcas::PMDKAllocator::Create("bztree_test_pool",
+                                                    "bztree_layout",
+                                                    static_cast<uint64_t>(1024) * 1024 * 1204 * 5),
                       pmwcas::PMDKAllocator::Destroy,
                       pmwcas::LinuxEnvironment::Create,
                       pmwcas::LinuxEnvironment::Destroy);

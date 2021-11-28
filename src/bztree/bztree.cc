@@ -24,19 +24,19 @@ BzTree::BzTree() {
 #endif  // PMDK
 }
 
-bool BzTree::insert(const std::string key, uint64_t value) {
+bool BzTree::insert(const std::string key, const std::string value) {
   // todo
   return true;
 }
 
-bool BzTree::update(const std::string key, uint64_t value) {
+bool BzTree::update(const std::string key, const std::string value) {
   // todo
   return true;
 }
 
-std::optional<uint64_t> BzTree::lookup(const std::string key) {
+std::optional<std::string> BzTree::lookup(const std::string key) {
   // todo
-  return 10;
+  return "todo";
 }
 
 bool BzTree::erase(const std::string key) {
@@ -66,9 +66,9 @@ bool BzTree::iterator::operator!=(BzTree::iterator other) const {
   return !(*this == other);
 }
 
-uint64_t BzTree::iterator::operator*() const {
+const std::string BzTree::iterator::operator*() const {
   // todo
-  return 12;
+  return "todo";
 }
 
 }  // namespace pmwcas

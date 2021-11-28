@@ -8,13 +8,6 @@ namespace test {
 
 // most test patterns shamelessly borrowed from lab 3's BTree tests
 
-// convert test uint64_t key to string key
-// note: this /intentionally/ messes up the order to sort lexicographically
-// ex: 0, 1, 10, 100, 101, 102, ... 109, 11, 110, 111, 112...
-std::string convertKey(uint64_t k) {
-  return std::to_string(k);
-}
-
 struct SingleThreadTest {
   BzTree tree;
 
@@ -31,7 +24,7 @@ GTEST_TEST(BzTreeTest, LookupEmptyTree) {
   std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
 
   auto test = "searching for a non-existing element in an empty B-Tree";
-  ASSERT_FALSE(t->tree.lookup(convertKey(42))) << test << " seems to return something :-O";
+  ASSERT_FALSE(t->tree.lookup("abcd")) << test << " seems to return something :-O";
 }
 
 } // namespace test

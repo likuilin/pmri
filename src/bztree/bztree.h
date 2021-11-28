@@ -42,6 +42,7 @@ struct NodeHeader {
   // status word {
     uint8_t control       : 3;
     bool frozen           : 1;
+    // next three only exist for leaf nodes
     uint16_t record_count : 16;
     uint32_t block_size   : 22;
     uint32_t delete_size  : 22;
@@ -79,35 +80,34 @@ class BzTree {
     BzTree();
 
     // insert, update, lookup, erase
-    bool insert(const std::string key, uint64_t value);
-    bool update(const std::string key, uint64_t value);
-    std::optional<uint64_t> lookup(const std::string key);
+    bool insert(const std::string key, const std::string value);
+    bool update(const std::string key, const std::string value);
+    std::optional<std::string> lookup(const std::string key);
     bool erase(const std::string key);
 
     // input iterator for range scan
     class iterator: public std::iterator<
                         std::input_iterator_tag,   // iterator_category
-                        uint64_t,                  // value_type
+                        const std::string,         // value_type
                         size_t,                    // difference_type
-                        uint64_t*,                 // pointer
-                        uint64_t                   // reference
+                        const std::string*,        // pointer
+                        const std::string          // reference
                                       >{
       public:
         iterator& operator++();
         iterator operator++(int);
         bool operator==(iterator other) const;
         bool operator!=(iterator other) const;
-        uint64_t operator*() const;
+        const std::string operator*() const;
     };
     // these two mirror std::set's range iterators
     // lower_bound is an iterator for the first element >= key
-    iterator lower_bound(uint64_t key);
+    iterator lower_bound(const std::string key);
     // upper_bound is an iterator for the first element > key
-    iterator upper_bound(uint64_t key);
+    iterator upper_bound(const std::string key);
 
   private:
     PMEMobjpool *pop;
-
     TOID(struct BzPMDKRootObj) pmdkroot;
 };
 }  // namespace pmwcas

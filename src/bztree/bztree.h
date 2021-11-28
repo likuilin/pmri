@@ -29,10 +29,10 @@ namespace pmwcas {
 // because no persistent pointers to those types should ever be needed
 // since they are calculated from offsets on the Node persistent pointer
 POBJ_LAYOUT_BEGIN(bztree_layout);
-POBJ_LAYOUT_ROOT(bztree_layout, struct BzRootObj);
+POBJ_LAYOUT_ROOT(bztree_layout, struct BzPMDKRootObj);
+POBJ_LAYOUT_ROOT(bztree_layout, struct BzPMDKMetadata);
 POBJ_LAYOUT_TOID(bztree_layout, DescriptorPool);
 POBJ_LAYOUT_TOID(bztree_layout, struct Node);
-POBJ_LAYOUT_TOID(bztree_layout, struct BzPMDKRootObj);
 POBJ_LAYOUT_END(bztree_layout);
 
 // ref figure 2 for these
@@ -68,9 +68,18 @@ struct Node {
 };
 static_assert(sizeof(struct Node) == BZTREE_NODE_SIZE);
 
-// root object contains descriptor pool and ptr to root node
+// actual root object only contains a pointer to the root object and descriptor pool
+// this is so we can atomically update height alongside a new root that's that high
+// the paper does not address this problem
+// this is a struct instead of a typedef because it must be accepted by TOID
 struct BzPMDKRootObj {
+  TOID(struct BzPMDKMetadata) metadata;
   TOID(DescriptorPool) desc_pool;
+};
+
+// root object contains root node and height
+// multiple may exist if we're in the middle of a root rotation
+struct BzPMDKMetadata {
   TOID(struct Node) root_node;
   uint64_t height;
 };
@@ -107,7 +116,19 @@ class BzTree {
     iterator upper_bound(const std::string key);
 
   private:
+    // the only thing we can keep in this class (on heap, outside pmem) is pop and desc pool
+    // we must re-obtain the root pointer on every action, so nothing can really be "cached"
     PMEMobjpool *pop;
-    TOID(struct BzPMDKRootObj) pmdkroot;
+    DescriptorPool *desc_pool;
+
+    // traverses the tree and finds the leaf node in which the key should be
+    std::optional<TOID(struct Node)> find_leaf(const std::string key);
+
+    // === helpers ===
+    // get metadata struct from pop
+    const struct BzPMDKMetadata *get_metadata();
+
+    // === structural modifications ===
+    // void split_node()
 };
 }  // namespace pmwcas

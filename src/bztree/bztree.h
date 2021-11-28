@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include "mwcas/mwcas.h"
+#include "common/garbage_list.h"
 
 // size in bytes of each node
 // this should be = 16 + 16*(num keys) + total key len
@@ -37,16 +38,18 @@ POBJ_LAYOUT_END(bztree_layout);
 
 // ref figure 2 for these
 #pragma pack(1)
+struct NodeHeaderStatusWord {
+  uint8_t control       : 3;
+  bool frozen           : 1;
+  // next three only exist for leaf nodes
+  uint16_t record_count : 16;
+  uint32_t block_size   : 22;
+  uint32_t delete_size  : 22;
+};
+#pragma pack(1)
 struct NodeHeader {
   uint32_t node_size    : 32;
-  // status word {
-    uint8_t control       : 3;
-    bool frozen           : 1;
-    // next three only exist for leaf nodes
-    uint16_t record_count : 16;
-    uint32_t block_size   : 22;
-    uint32_t delete_size  : 22;
-  // }
+  struct NodeHeaderStatusWord status_word;
   uint32_t sorted_count : 32;
 };
 static_assert(sizeof(struct NodeHeader) == 16);
@@ -64,7 +67,7 @@ static_assert(sizeof(struct NodeMetadata) == 8);
 #pragma pack(1)
 struct Node {
   struct NodeHeader header;
-  uint8_t body[BZTREE_NODE_SIZE - sizeof(header)];
+  char body[BZTREE_NODE_SIZE - sizeof(header)];
 };
 static_assert(sizeof(struct Node) == BZTREE_NODE_SIZE);
 
@@ -77,18 +80,21 @@ struct BzPMDKRootObj {
   TOID(DescriptorPool) desc_pool;
 };
 
-// root object contains root node and height
+// root object contains root node and height and global index epoch
 // multiple may exist if we're in the middle of a root rotation
 struct BzPMDKMetadata {
   TOID(struct Node) root_node;
   uint64_t height;
+  uint64_t global_epoch;
 };
 
 class BzTree {
   public:
     BzTree();
+    ~BzTree();
 
     // insert, update, lookup, erase
+    // these return false on failure, the user may retry if they want
     bool insert(const std::string key, const std::string value);
     bool update(const std::string key, const std::string value);
     std::optional<std::string> lookup(const std::string key);
@@ -116,17 +122,32 @@ class BzTree {
     iterator upper_bound(const std::string key);
 
   private:
-    // the only thing we can keep in this class (on heap, outside pmem) is pop and desc pool
-    // we must re-obtain the root pointer on every action, so nothing can really be "cached"
+    // we must re-obtain the root pointer on every action, so nothing in pmem can really be "cached"
     PMEMobjpool *pop;
-    DescriptorPool *desc_pool;
 
-    // traverses the tree and finds the leaf node in which the key should be
-    std::optional<TOID(struct Node)> find_leaf(const std::string key);
+    // garbage collection
+    EpochManager epoch;
+    GarbageList garbage;
+
+    // these are cached from the pmem safely because they never are changed
+    DescriptorPool *desc_pool;
+    uint64_t global_epoch;
+
+    // destroy function for garbage list
+    static void DestroyNode(void *destroyContext, void *p) {
+#ifdef PMDK
+      POBJ_FREE(p);
+#else
+#error "Non-PMDK not implemented"
+#endif  // PMDK
+    };
 
     // === helpers ===
     // get metadata struct from pop
     const struct BzPMDKMetadata *get_metadata();
+
+    // traverses the tree and finds the leaf node in which the key should be
+    TOID(struct Node) find_leaf(const std::string key);
 
     // === structural modifications ===
     // void split_node()

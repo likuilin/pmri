@@ -8,11 +8,11 @@ namespace test {
 
 // most test patterns shamelessly borrowed from lab 3's BTree tests
 
-// convert test uint64_t key to variable length vector<uint8_t> key
-std::vector<uint8_t> convertKey(uint64_t k) {
-  // undefined behavior by the way
-  uint8_t *ptr = reinterpret_cast<uint8_t*>(&k);
-  return std::vector<uint8_t>(ptr, ptr + 8);
+// convert test uint64_t key to string key
+// note: this /intentionally/ messes up the order to sort lexicographically
+// ex: 0, 1, 10, 100, 101, 102, ... 109, 11, 110, 111, 112...
+std::string convertKey(uint64_t k) {
+  return std::to_string(k);
 }
 
 struct SingleThreadTest {

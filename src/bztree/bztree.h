@@ -1,7 +1,7 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
-#include <vector>
+#include <string>
 #include "mwcas/mwcas.h"
 
 // size in bytes of each node
@@ -79,10 +79,10 @@ class BzTree {
     BzTree();
 
     // insert, update, lookup, erase
-    bool insert(const std::vector<uint8_t> key, uint64_t value);
-    bool update(const std::vector<uint8_t> key, uint64_t value);
-    std::optional<uint64_t> lookup(const std::vector<uint8_t> key);
-    bool erase(const std::vector<uint8_t> key);
+    bool insert(const std::string key, uint64_t value);
+    bool update(const std::string key, uint64_t value);
+    std::optional<uint64_t> lookup(const std::string key);
+    bool erase(const std::string key);
 
     // input iterator for range scan
     class iterator: public std::iterator<

@@ -24,22 +24,22 @@ BzTree::BzTree() {
 #endif  // PMDK
 }
 
-bool BzTree::insert(const std::vector<uint8_t> key, uint64_t value) {
+bool BzTree::insert(const std::string key, uint64_t value) {
   // todo
   return true;
 }
 
-bool BzTree::update(const std::vector<uint8_t> key, uint64_t value) {
+bool BzTree::update(const std::string key, uint64_t value) {
   // todo
   return true;
 }
 
-std::optional<uint64_t> BzTree::lookup(const std::vector<uint8_t> key) {
+std::optional<uint64_t> BzTree::lookup(const std::string key) {
   // todo
   return 10;
 }
 
-bool BzTree::erase(const std::vector<uint8_t> key) {
+bool BzTree::erase(const std::string key) {
   // todo
   return true;
 }

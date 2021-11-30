@@ -8,6 +8,9 @@ namespace test {
 
 // most test patterns shamelessly borrowed from lab 3's BTree tests
 
+// for testing: key len is 8 and val len is 8, so 10 keys is 16+16*10+8*10 = 256 bytes exactly
+#define BZTREE_CAPACITY 10
+
 struct SingleThreadTest {
   BzTree tree;
 
@@ -27,6 +30,54 @@ GTEST_TEST(BzTreeTest, LookupEmptyTree) {
   ASSERT_FALSE(t->tree.lookup("abcd")) << test << " seems to return something :-O";
 }
 
+GTEST_TEST(BzTreeTest, LookupSinglePair) {
+  std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+
+  t->tree.insert("key", "value");
+
+  ASSERT_TRUE(t->tree.lookup("key")) << "searching for an existing element in a one-value B-Tree";
+  ASSERT_FALSE(t->tree.lookup("asdfasd")) << "searching for a non-existing element in a one-value B-Tree";
+}
+
+// todo(req) variable key value length tests
+
+std::string _kid(uint64_t i) {
+    // returns 7 chars, 8 with null
+    char buf[8];
+    snprintf(buf, 8, "k%06lu", i);
+    return std::string(buf);
+}
+std::string _vid(uint64_t i) {
+    // returns 7 chars, 8 with null
+    char buf[8];
+    snprintf(buf, 8, "v%06lu", i);
+    return std::string(buf);
+}
+
+GTEST_TEST(BzTreeTest, LookupSingleLeaf) {
+  std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+
+  // Fill one page
+  for (auto i = 0; i < BZTREE_CAPACITY; ++i) {
+    std::string kid = _kid(i);
+    std::string vid = _vid(i);
+    t->tree.insert(kid, vid);
+    ASSERT_TRUE(t->tree.lookup(kid))
+        << "searching for the just inserted key k=" << kid << " yields nothing";
+  }
+
+  // Lookup all values
+  for (auto i = 0; i < BZTREE_CAPACITY; ++i) {
+    std::string kid = _kid(i);
+    std::string vid = _vid(i);
+    auto v = t->tree.lookup(kid);
+    ASSERT_TRUE(v) << "key=" << kid << " is missing";
+    ASSERT_TRUE(v == vid) << "key=" << kid << " wrong value";
+  }
+
+  ASSERT_FALSE(t->tree.insert("key", "value")) << "insertion causing node split";
+}
+
 } // namespace test
 } // namespace pmwcas
 
@@ -43,7 +94,7 @@ int main(int argc, char** argv) {
 #ifdef PMDK
   pmwcas::InitLibrary(pmwcas::PMDKAllocator::Create("bztree_test_pool",
                                                     "bztree_layout",
-                                                    static_cast<uint64_t>(1024) * 1024 * 1204 * 5),
+                                                    static_cast<uint64_t>(1024) * 1024 * 1024),
                       pmwcas::PMDKAllocator::Destroy,
                       pmwcas::LinuxEnvironment::Create,
                       pmwcas::LinuxEnvironment::Destroy);

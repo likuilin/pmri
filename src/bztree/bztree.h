@@ -59,8 +59,8 @@ struct NodeMetadata {
   uint8_t control       : 3;
   bool visible          : 1;
   uint32_t offset       : 28;
-  uint16_t key_len      : 16;
-  uint16_t total_len    : 16;
+  uint16_t key_len      : 16; // note: includes trailing null
+  uint16_t total_len    : 16; // note: includes trailing null for key and value
 };
 static_assert(sizeof(struct NodeMetadata) == 8);
 
@@ -148,6 +148,9 @@ class BzTree {
 
     // traverses the tree and finds the leaf node in which the key should be
     TOID(struct Node) find_leaf(const std::string key);
+
+    // prints a node to stdout, without regard for safety
+    void DEBUG_print_node(const struct Node* node);
 
     // === structural modifications ===
     // void split_node()

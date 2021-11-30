@@ -1,8 +1,10 @@
 #include "bztree.h"
 #include "common/allocator_internal.h"
 
-#define POOL_SIZE 10000000
+#define POOL_SIZE 1000
 #define POOL_THREADS 10
+
+#define GLOBAL_EPOCH_OFFSET_BIT (1 << 27)
 
 namespace pmwcas {
 
@@ -44,6 +46,8 @@ BzTree::BzTree() {
     // todo(persistence): after verifying desc_pool works: increment the global epoch
     // also throw if global epoch cannot fit in 28 bits, because we borrow offset for that
     global_epoch = 1;
+    printf("did you forget to rm the pool (replace me when persistence is implemented)");
+    assert(0);
   }
 #else
 #error "Non-PMDK not implemented"
@@ -83,6 +87,31 @@ std::optional<uint64_t> leaf_find_key(TOID(struct Node) node, const std::string 
 }
 */
 
+void BzTree::DEBUG_print_node(const struct Node* node) {
+  printf("=== node %p ===\n", node);
+  if (!node) return;
+  printf("node_size:    %d\n", node->header.node_size);
+  printf("sorted_count: %d\n", node->header.sorted_count);
+  printf("-\n");
+  printf("control:      %d\n", node->header.status_word.control);
+  printf("frozen:       %d\n", node->header.status_word.frozen);
+  printf("record_count: %d\n", node->header.status_word.record_count);
+  printf("block_size:   %d\n", node->header.status_word.block_size);
+  printf("delete_size:  %d\n", node->header.status_word.delete_size);
+  printf("-\n");
+  printf("data block:\n");
+  assert(sizeof(node->body) % 16 == 0);
+  for (size_t i=0; i<sizeof(node->body); i+=16) {
+    for (size_t j=0; j<16; j++) printf("%02x ", node->body[i+j]);
+    printf("| ");
+    for (size_t j=0; j<16; j++) {
+      if (node->body[i+j] >= 0x20 && node->body[i+j] < 0x7f) printf("%c", node->body[i+j]);
+      else printf(".");
+    }
+    printf("\n");
+  }
+}
+
 bool BzTree::insert(const std::string key, const std::string value) {
   size_t space_required = sizeof(struct NodeMetadata) + key.length() + 1 + value.length() + 1;
   // exit early if it is too large for any node
@@ -90,8 +119,8 @@ bool BzTree::insert(const std::string key, const std::string value) {
 
   assert(epoch.Protect());
   TOID(struct Node) leaf_oid = find_leaf(key);
-  const struct Node *leaf = D_RO(leaf_oid);
-  const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(leaf->body);
+  struct Node *leaf = D_RW(leaf_oid);
+  struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
 
   // check for existing value
   // this first pass is only opportunistic, it's not to formally check for existing value
@@ -100,7 +129,7 @@ bool BzTree::insert(const std::string key, const std::string value) {
   // todo(optimization): binary search sorted keys
   for (uint16_t i=0; i<leaf->header.status_word.record_count; i++) {
     // any not-visible ones potentially are key conflicts in the middle of insertion, if in the same epoch
-    if (!nmd[i].visible && nmd[i].offset == global_epoch) recheck = true;
+    if (!nmd[i].visible && nmd[i].offset == (global_epoch | GLOBAL_EPOCH_OFFSET_BIT)) recheck = true;
     if (nmd[i].visible && strcmp(&leaf->body[nmd[i].offset], key.c_str()) == 0) {
       // fail because we found one that's already the same key
       assert(epoch.Unprotect());
@@ -110,26 +139,72 @@ bool BzTree::insert(const std::string key, const std::string value) {
 
   // reserve space for metadata and key value entry
   while (1) {
+    // set up pmwcas to allocate space on the node
+    // copy status word
     struct NodeHeaderStatusWord sw_old = leaf->header.status_word;
     struct NodeHeaderStatusWord sw = sw_old;
     if (sw.block_size + space_required > sizeof(struct Node) - sizeof(struct NodeHeader) -
         sw.record_count * sizeof(struct NodeMetadata)) {
       // too large to fit, we have to split the node
       // todo(req): split node
-      assert(false);
+      assert(epoch.Unprotect());
+      return false;
     }
     sw.block_size += key.length() + 1 + value.length() + 1;
     sw.record_count += 1;
+
+    // copy node metadata
+    struct NodeMetadata md_old = nmd[sw_old.record_count];
+    struct NodeMetadata md = md_old;
+    assert(md.visible == 0);
+    md.offset = (global_epoch | GLOBAL_EPOCH_OFFSET_BIT);
 
     // pmwcas to allocate space on the node
     auto *desc = desc_pool->AllocateDescriptor();
     assert(desc);
     desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw_old, *(uint64_t*)&sw);
-    // desc->AddEntry((uint64_t*)&nmd[sw_old.record_count].offset, 0, // TODO PROGRESS BOOKMARK
-    
+    desc->AddEntry((uint64_t*)&nmd[sw_old.record_count], *(uint64_t*)&md_old, *(uint64_t*)&md);
+    if (!desc->MwCAS()) {
+      // collision, so another thread tried to allocate here, so retry
+      // set recheck flag because the other allocation may be for a conflicting key
+      recheck = true;
+      continue;
+    }
+    break;
   }
 
-  // todo
+  // set up pmwcas to make record visible, also check and ensure the frozen bit
+  // status word is not modified, only to ensure frozen bit
+  struct NodeHeaderStatusWord sw = leaf->header.status_word;
+
+  // now we can basically safely work, copy the key and value in
+  struct NodeMetadata md_old = nmd[sw.record_count-1];
+  struct NodeMetadata md = md_old;
+  md.offset = sizeof(leaf->body) - sw.block_size;
+  md.key_len = key.length() + 1;
+  md.total_len = key.length() + 1 + value.length() + 1;
+  pmemobj_memcpy_persist(pop, &leaf->body[md.offset], key.c_str(), key.length() + 1);
+  pmemobj_memcpy_persist(pop, &leaf->body[md.offset + md.key_len], value.c_str(), value.length() + 1);
+
+  if (sw.frozen) {
+    // must retry entire thing (including traversal) since this is frozen
+    assert(epoch.Unprotect());
+    return false;
+  }
+
+  md.visible = 1;
+  auto *desc = desc_pool->AllocateDescriptor();
+  assert(desc);
+  desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw, *(uint64_t*)&sw);
+  desc->AddEntry((uint64_t*)&nmd[sw.record_count-1], *(uint64_t*)&md_old, *(uint64_t*)&md);
+  if (!desc->MwCAS()) {
+    // node has unfortunately become frozen in the meantime
+    // so we must retry the entire thing
+    assert(epoch.Unprotect());
+    return false;
+  }
+
+  // all done, insert success
   assert(epoch.Unprotect());
   return true;
 }
@@ -140,8 +215,23 @@ bool BzTree::update(const std::string key, const std::string value) {
 }
 
 std::optional<std::string> BzTree::lookup(const std::string key) {
-  // todo
-  return "todo";
+  // we don't need a lock for this
+  TOID(struct Node) leaf_oid = find_leaf(key);
+  const struct Node *leaf = D_RO(leaf_oid);
+  const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(leaf->body);
+
+  // todo(optimization): binary search sorted keys
+  for (uint16_t i=0; i<leaf->header.status_word.record_count; i++) {
+    if (nmd[i].visible && strcmp(&leaf->body[nmd[i].offset], key.c_str()) == 0) {
+      // found!
+      assert(epoch.Unprotect());
+      return std::string(&leaf->body[nmd[i].offset + nmd[i].key_len]);
+    }
+  }
+
+  // did not find it
+  assert(epoch.Unprotect());
+  return std::nullopt;
 }
 
 bool BzTree::erase(const std::string key) {

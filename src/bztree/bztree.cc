@@ -120,7 +120,7 @@ bool BzTree::insert(const std::string key, const std::string value) {
   // exit early if it is too large for any node
   if (space_required > sizeof(struct Node) - sizeof(struct NodeHeader)) return false;
 
-  assert(epoch.Protect());
+  assert(epoch.Protect().ok());
   TOID(struct Node) leaf_oid = find_leaf(key);
   struct Node *leaf = D_RW(leaf_oid);
   struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
@@ -135,7 +135,7 @@ bool BzTree::insert(const std::string key, const std::string value) {
     if (!nmd[i].visible && nmd[i].offset == (global_epoch | GLOBAL_EPOCH_OFFSET_BIT)) recheck = true;
     if (nmd[i].visible && strcmp(&leaf->body[nmd[i].offset], key.c_str()) == 0) {
       // fail because we found one that's already the same key
-      assert(epoch.Unprotect());
+      assert(epoch.Unprotect().ok());
       return false;
     }
   }
@@ -150,7 +150,7 @@ bool BzTree::insert(const std::string key, const std::string value) {
         sw.record_count * sizeof(struct NodeMetadata)) {
       // too large to fit, we have to split the node
       // todo(req): split node
-      assert(epoch.Unprotect());
+      assert(epoch.Unprotect().ok());
       return false;
     }
     sw.block_size += key.length() + 1 + value.length() + 1;
@@ -191,7 +191,7 @@ bool BzTree::insert(const std::string key, const std::string value) {
 
   if (sw.frozen) {
     // must retry entire thing (including traversal) since this is frozen
-    assert(epoch.Unprotect());
+    assert(epoch.Unprotect().ok());
     // todo(optimization): replace tail call with loop? check if this is TCO by compiler? musttail?
     return insert(key, value);
   }
@@ -204,18 +204,18 @@ bool BzTree::insert(const std::string key, const std::string value) {
   if (!desc->MwCAS()) {
     // node has unfortunately become frozen in the meantime
     // so we must retry the entire thing
-    assert(epoch.Unprotect());
+    assert(epoch.Unprotect().ok());
     // todo(optimization): replace tail call with loop? check if this is TCO by compiler? musttail?
     return insert(key, value);
   }
 
   // all done, insert success
-  assert(epoch.Unprotect());
+  assert(epoch.Unprotect().ok());
   return true;
 }
 
 bool BzTree::update(const std::string key, const std::string value) {
-  assert(epoch.Protect());
+  assert(epoch.Protect().ok());
   TOID(struct Node) leaf_oid = find_leaf(key);
   struct Node *leaf = D_RW(leaf_oid);
   struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
@@ -234,7 +234,7 @@ bool BzTree::update(const std::string key, const std::string value) {
         if (!nmdi.visible || sw.frozen) {
           // we have been bamboozled (potentially via a concurrent delete for the same node)
           // or the thing is frozen, either way, we must re-scan
-          assert(epoch.Unprotect());
+          assert(epoch.Unprotect().ok());
           // todo(optimization): tail call
           return update(key, value);
         }
@@ -255,7 +255,7 @@ bool BzTree::update(const std::string key, const std::string value) {
             sw.record_count * sizeof(struct NodeMetadata)) {
           // too large to fit, we have to split the node
           // todo(req): split node
-          assert(epoch.Unprotect());
+          assert(epoch.Unprotect().ok());
           return false;
         }
 
@@ -299,20 +299,20 @@ bool BzTree::update(const std::string key, const std::string value) {
         }
 
         // all done!
-        assert(epoch.Unprotect());
+        assert(epoch.Unprotect().ok());
         return true;
       }
     }
   }
 
   // we did not find the key
-  assert(epoch.Unprotect());
+  assert(epoch.Unprotect().ok());
   return false;
 }
 
 std::optional<std::string> BzTree::lookup(const std::string key) {
   // we still need protection against deletion for this
-  assert(epoch.Protect());
+  assert(epoch.Protect().ok());
 
   TOID(struct Node) leaf_oid = find_leaf(key);
   const struct Node *leaf = D_RO(leaf_oid);
@@ -323,18 +323,18 @@ std::optional<std::string> BzTree::lookup(const std::string key) {
     if (nmd[i].visible && strcmp(&leaf->body[nmd[i].offset], key.c_str()) == 0) {
       // found!
       std::string res(&leaf->body[nmd[i].offset + nmd[i].key_len]);
-      assert(epoch.Unprotect());
+      assert(epoch.Unprotect().ok());
       return res;
     }
   }
 
   // did not find it
-  assert(epoch.Unprotect());
+  assert(epoch.Unprotect().ok());
   return std::nullopt;
 }
 
 bool BzTree::erase(const std::string key) {
-  assert(epoch.Protect());
+  assert(epoch.Protect().ok());
   TOID(struct Node) leaf_oid = find_leaf(key);
   struct Node *leaf = D_RW(leaf_oid);
   struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
@@ -350,7 +350,7 @@ bool BzTree::erase(const std::string key) {
       if (!nmdi.visible || sw.frozen) {
         // we have been bamboozled (potentially via a concurrent delete for the same node)
         // or the thing is frozen, either way, we must re-scan
-        assert(epoch.Unprotect());
+        assert(epoch.Unprotect().ok());
         // todo(optimization): tail call
         return erase(key);
       }
@@ -367,7 +367,7 @@ bool BzTree::erase(const std::string key) {
       desc->AddEntry((uint64_t*)&nmd[i], *(uint64_t*)&nmdi, *(uint64_t*)&nmdi_old);
       if (!desc->MwCAS()) {
         // node has unfortunately become frozen in the meantime, or something, we have to re-traverse
-        assert(epoch.Unprotect());
+        assert(epoch.Unprotect().ok());
         // todo(optimization): tail call
         return erase(key);
       }
@@ -379,7 +379,7 @@ bool BzTree::erase(const std::string key) {
   }
 
   // we did not find the key
-  assert(epoch.Unprotect());
+  assert(epoch.Unprotect().ok());
   return false;
 }
 

@@ -12,7 +12,7 @@ To get libpmemobj.so in the right place: `sudo ln -s $(dpkg -L libpmemobj-dev | 
 
 * `git submodule update --init --recursive` to get pmwcas deps
 * `mkdir build` and `cd build`
-* `cmake -DPMEM_BACKEND=PMDK -DCMAKE_BUILD_TYPE=RelWithDebInfo ..`
+* `cmake -DPMEM_BACKEND=PMDK -DCMAKE_BUILD_TYPE=Debug ..`
 * `make -j8`
 * Each reboot: `echo 4096 | sudo tee /proc/sys/vm/nr_hugepages` to reserve necessary huge pages*
 * Test pmwcas by doing `./mwcas_shm_server` and then in a separate terminal `./mwcas_tests`, if it works, yay

@@ -49,8 +49,8 @@ struct NodeHeaderStatusWord {
 #pragma pack(1)
 struct NodeHeader {
   uint32_t node_size    : 32;
-  struct NodeHeaderStatusWord status_word;
   uint32_t sorted_count : 32;
+  struct NodeHeaderStatusWord status_word;
 };
 static_assert(sizeof(struct NodeHeader) == 16);
 

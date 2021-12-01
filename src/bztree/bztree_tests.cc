@@ -19,6 +19,7 @@ struct SingleThreadTest {
   }
 
   ~SingleThreadTest() {
+    tree.destroy();
     Thread::ClearRegistry();
   }
 };

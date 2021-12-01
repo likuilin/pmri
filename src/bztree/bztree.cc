@@ -40,8 +40,6 @@ BzTree::BzTree() {
     rootobj->metadata = newmetadata_oid;
     rootobj->desc_pool = desc_pool_oid;
   } else {
-printf("wat\n");
-assert(0);
     // grab the descriptor pool ptr
     // todo(persistence): check if we have to initialize? DescriptorPool has a third param for existing vm addr...
     desc_pool = D_RW(D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->desc_pool);
@@ -49,7 +47,7 @@ assert(0);
     // also throw if global epoch cannot fit in 28 bits, because we borrow offset for that
     global_epoch = 1;
     printf("did you forget to rm the pool (replace me when persistence is implemented)");
-    assert(0);
+    // assert(0);
   }
 #else
 #error "Non-PMDK not implemented"
@@ -57,10 +55,28 @@ assert(0);
 }
 
 BzTree::~BzTree() {
+  Thread::ClearRegistry(true);
+}
+
+void BzTree::destroy() {
+  // todo(optimization): we should free all the nodes, otherwise they're still taking up memory
+  // either that or just rm the pool object after closing it
+  // todo(benchmarks): we may actually need to do the latter for benchmarks
+
+  // destroy the tree root node
+  D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->metadata = TOID_NULL(struct BzPMDKMetadata);
+  D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->desc_pool = TOID_NULL(DescriptorPool);
+
+  // clear decriptor pool and prevent reuse of this instance by resetting pop
   if (desc_pool) desc_pool->~DescriptorPool();
   desc_pool = nullptr;
+  pop = nullptr;
+
+  // clear aux stuff
   garbage.Uninitialize();
   epoch.Uninitialize();
+
+  // clear tls
   Thread::ClearRegistry(true);
 }
 

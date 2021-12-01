@@ -121,6 +121,11 @@ class BzTree {
     // upper_bound is an iterator for the first element > key
     iterator upper_bound(const std::string key);
 
+    // used to destroy the tree, so that a new tree can be constructed
+    // the destructor doesn't actually destroy the tree, because it is saved in pmem
+    // not thread safe, will cause UB if called while other operations are ongoing
+    void destroy();
+
   private:
     // we must re-obtain the root pointer on every action, so nothing in pmem can really be "cached"
     PMEMobjpool *pop;

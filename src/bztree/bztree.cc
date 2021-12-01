@@ -40,6 +40,8 @@ BzTree::BzTree() {
     rootobj->metadata = newmetadata_oid;
     rootobj->desc_pool = desc_pool_oid;
   } else {
+printf("wat\n");
+assert(0);
     // grab the descriptor pool ptr
     // todo(persistence): check if we have to initialize? DescriptorPool has a third param for existing vm addr...
     desc_pool = D_RW(D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->desc_pool);
@@ -56,6 +58,7 @@ BzTree::BzTree() {
 
 BzTree::~BzTree() {
   if (desc_pool) desc_pool->~DescriptorPool();
+  desc_pool = nullptr;
   garbage.Uninitialize();
   epoch.Uninitialize();
   Thread::ClearRegistry(true);
@@ -189,7 +192,8 @@ bool BzTree::insert(const std::string key, const std::string value) {
   if (sw.frozen) {
     // must retry entire thing (including traversal) since this is frozen
     assert(epoch.Unprotect());
-    return false;
+    // todo(optimization): replace tail call with loop? check if this is TCO by compiler? musttail?
+    return insert(key, value);
   }
 
   md.visible = 1;
@@ -201,7 +205,8 @@ bool BzTree::insert(const std::string key, const std::string value) {
     // node has unfortunately become frozen in the meantime
     // so we must retry the entire thing
     assert(epoch.Unprotect());
-    return false;
+    // todo(optimization): replace tail call with loop? check if this is TCO by compiler? musttail?
+    return insert(key, value);
   }
 
   // all done, insert success
@@ -210,12 +215,105 @@ bool BzTree::insert(const std::string key, const std::string value) {
 }
 
 bool BzTree::update(const std::string key, const std::string value) {
-  // todo
-  return true;
+  assert(epoch.Protect());
+  TOID(struct Node) leaf_oid = find_leaf(key);
+  struct Node *leaf = D_RW(leaf_oid);
+  struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
+
+  // todo(optimization): binary search sorted keys
+  for (uint16_t i=0; i<leaf->header.status_word.record_count; i++) {
+    if (nmd[i].visible && strcmp(&leaf->body[nmd[i].offset], key.c_str()) == 0) {
+      // found! now we copy it into local and recheck
+      // while (1) is to be able to retry upon new data region allocation failure, since the node is the same
+      // (almost certainly, that is, it's rechecked for failures though so it's fine)
+      while (1) {
+        struct NodeHeaderStatusWord sw_old = leaf->header.status_word;
+        struct NodeHeaderStatusWord sw = sw_old;
+        struct NodeMetadata nmdi_old = nmd[i];
+        struct NodeMetadata nmdi = nmdi_old;
+        if (!nmdi.visible || sw.frozen) {
+          // we have been bamboozled (potentially via a concurrent delete for the same node)
+          // or the thing is frozen, either way, we must re-scan
+          assert(epoch.Unprotect());
+          // todo(optimization): tail call
+          return update(key, value);
+        }
+
+        // todo(feature): if the payload value is smaller, consider updating in-place
+        // this is nontrivial though because there could be a concurrent read for the
+        // value which cannot return a partial old and partial new value
+
+        // todo(optimization): we really don't need to re-allocate the key here, but then
+        // we would have to change the node data structure to have key and value ptrs
+        // instead of a key len and value len and offset... which may be better, actually, sidenote:
+        // we did take the design decision to only store strings, so nulls cannot be in k or v
+        // so we can get away with one less pointer in the struct
+
+        // now we need to reserve some space, or split the node if we can't
+        size_t space_required = key.length() + 1 + value.length() + 1;
+        if (sw.block_size + space_required > sizeof(struct Node) - sizeof(struct NodeHeader) -
+            sw.record_count * sizeof(struct NodeMetadata)) {
+          // too large to fit, we have to split the node
+          // todo(req): split node
+          assert(epoch.Unprotect());
+          return false;
+        }
+
+        // allocate space first
+        // todo(optimization): we only need a one-word CAS for this, but,
+        // we're using the library for convenience
+        sw.block_size += space_required;
+        {
+          auto *desc = desc_pool->AllocateDescriptor();
+          assert(desc);
+          desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw_old, *(uint64_t*)&sw);
+          if (!desc->MwCAS()) {
+            // possible frozen or insert, optimistically continue, it'll detect frozen if so
+            continue;
+          }
+        }
+
+        // prepare next pmwcas
+        sw_old = sw;
+        // this one swaps in the offset and total_len, so we can also add in the delete_size
+        // (not mentioned in paper, but it's a good heuristic thing to add)
+        // since we need to pmwcas in the status word anyways to make sure the node didn't get frozen
+        sw.delete_size += space_required;
+
+        nmdi.offset = sizeof(leaf->body) - sw.block_size;
+        assert(nmdi.key_len == key.length() + 1);
+        nmdi.total_len = key.length() + 1 + value.length() + 1;
+        pmemobj_memcpy_persist(pop, &leaf->body[nmdi.offset], key.c_str(), key.length() + 1);
+        pmemobj_memcpy_persist(pop, &leaf->body[nmdi.offset + nmdi.key_len], value.c_str(), value.length() + 1);
+
+        // install new data offset
+        {
+          auto *desc = desc_pool->AllocateDescriptor();
+          assert(desc);
+          desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw_old, *(uint64_t*)&sw);
+          desc->AddEntry((uint64_t*)&nmd[sw.record_count-1], *(uint64_t*)&nmdi_old, *(uint64_t*)&nmdi);
+          if (!desc->MwCAS()) {
+            // possible frozen or insert, optimistically continue, it'll detect frozen if so
+            continue;
+          }
+        }
+
+        // all done!
+        assert(epoch.Unprotect());
+        return true;
+      }
+    }
+  }
+
+  // we did not find the key
+  assert(epoch.Unprotect());
+  return false;
 }
 
 std::optional<std::string> BzTree::lookup(const std::string key) {
-  // we don't need a lock for this
+  // we still need protection against deletion for this
+  assert(epoch.Protect());
+
   TOID(struct Node) leaf_oid = find_leaf(key);
   const struct Node *leaf = D_RO(leaf_oid);
   const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(leaf->body);
@@ -224,8 +322,9 @@ std::optional<std::string> BzTree::lookup(const std::string key) {
   for (uint16_t i=0; i<leaf->header.status_word.record_count; i++) {
     if (nmd[i].visible && strcmp(&leaf->body[nmd[i].offset], key.c_str()) == 0) {
       // found!
+      std::string res(&leaf->body[nmd[i].offset + nmd[i].key_len]);
       assert(epoch.Unprotect());
-      return std::string(&leaf->body[nmd[i].offset + nmd[i].key_len]);
+      return res;
     }
   }
 
@@ -235,9 +334,56 @@ std::optional<std::string> BzTree::lookup(const std::string key) {
 }
 
 bool BzTree::erase(const std::string key) {
-  // todo
-  return true;
+  assert(epoch.Protect());
+  TOID(struct Node) leaf_oid = find_leaf(key);
+  struct Node *leaf = D_RW(leaf_oid);
+  struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
+
+  // todo(optimization): binary search sorted keys
+  for (uint16_t i=0; i<leaf->header.status_word.record_count; i++) {
+    if (nmd[i].visible && strcmp(&leaf->body[nmd[i].offset], key.c_str()) == 0) {
+      // found! now we copy it into local and recheck
+      struct NodeHeaderStatusWord sw_old = leaf->header.status_word;
+      struct NodeHeaderStatusWord sw = sw_old;
+      struct NodeMetadata nmdi_old = nmd[i];
+      struct NodeMetadata nmdi = nmdi_old;
+      if (!nmdi.visible || sw.frozen) {
+        // we have been bamboozled (potentially via a concurrent delete for the same node)
+        // or the thing is frozen, either way, we must re-scan
+        assert(epoch.Unprotect());
+        // todo(optimization): tail call
+        return erase(key);
+      }
+
+      // erase node
+      nmdi.offset = 0;
+      nmdi.visible = 0;
+      sw.delete_size += 1;
+
+      // pmwcas to install new values
+      auto *desc = desc_pool->AllocateDescriptor();
+      assert(desc);
+      desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw, *(uint64_t*)&sw_old);
+      desc->AddEntry((uint64_t*)&nmd[i], *(uint64_t*)&nmdi, *(uint64_t*)&nmdi_old);
+      if (!desc->MwCAS()) {
+        // node has unfortunately become frozen in the meantime, or something, we have to re-traverse
+        assert(epoch.Unprotect());
+        // todo(optimization): tail call
+        return erase(key);
+      }
+
+      // todo(optimization): section 5 compaction of node based on delete_size heuristic would go here
+
+      return true;
+    }
+  }
+
+  // we did not find the key
+  assert(epoch.Unprotect());
+  return false;
 }
+
+// todo(optimization): we should check if the node can be compacted and if so, do that first before splitting
 
 // post increment
 BzTree::iterator& BzTree::iterator::operator++() {

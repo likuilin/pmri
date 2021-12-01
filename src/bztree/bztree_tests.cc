@@ -78,6 +78,30 @@ GTEST_TEST(BzTreeTest, LookupSingleLeaf) {
   ASSERT_FALSE(t->tree.insert("key", "value")) << "insertion causing node split";
 }
 
+// GTEST_TEST(BzTreeTest, LookupSingleSplit) {
+  // std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+
+  // // Fill one page
+  // for (auto i = 0; i < BZTREE_CAPACITY; ++i) {
+    // std::string kid = _kid(i);
+    // std::string vid = _vid(i);
+    // t->tree.insert(kid, vid);
+    // ASSERT_TRUE(t->tree.lookup(kid))
+        // << "searching for the just inserted key k=" << kid << " yields nothing";
+  // }
+
+  // // Lookup all values
+  // for (auto i = 0; i < BZTREE_CAPACITY; ++i) {
+    // std::string kid = _kid(i);
+    // std::string vid = _vid(i);
+    // auto v = t->tree.lookup(kid);
+    // ASSERT_TRUE(v) << "key=" << kid << " is missing";
+    // ASSERT_TRUE(v == vid) << "key=" << kid << " wrong value";
+  // }
+
+  // ASSERT_FALSE(t->tree.insert("key", "value")) << "insertion causing node split";
+// }
+
 } // namespace test
 } // namespace pmwcas
 
@@ -92,6 +116,7 @@ int main(int argc, char** argv) {
                            pmwcas::WindowsEnvironment::Destroy);
 #else
 #ifdef PMDK
+  unlink("bztree_test_pool");
   pmwcas::InitLibrary(pmwcas::PMDKAllocator::Create("bztree_test_pool",
                                                     "bztree_layout",
                                                     static_cast<uint64_t>(1024) * 1024 * 1024),

@@ -121,7 +121,7 @@ void BzTree::DEBUG_print_node(const struct Node* node) {
   printf("data block:\n");
   assert(sizeof(node->body) % 16 == 0);
   for (size_t i=0; i<sizeof(node->body); i+=16) {
-    for (size_t j=0; j<16; j++) printf("%02x ", node->body[i+j]);
+    for (size_t j=0; j<16; j++) printf("%02x ", (unsigned char)node->body[i+j]);
     printf("| ");
     for (size_t j=0; j<16; j++) {
       if (node->body[i+j] >= 0x20 && node->body[i+j] < 0x7f) printf("%c", node->body[i+j]);
@@ -129,6 +129,18 @@ void BzTree::DEBUG_print_node(const struct Node* node) {
     }
     printf("\n");
   }
+}
+
+void BzTree::DEBUG_print_tree() {
+  // todo(feature): traverse tree
+  printf("todo print entire tree, here take the root node\n");
+  auto *md = get_metadata();
+
+  for (size_t i=0; i<md->height-1; i++) {
+    assert(0);
+  }
+
+  DEBUG_print_node(D_RO(md->root_node));
 }
 
 bool BzTree::insert(const std::string key, const std::string value) {

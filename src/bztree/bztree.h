@@ -126,6 +126,10 @@ class BzTree {
     // not thread safe, will cause UB if called while other operations are ongoing
     void destroy();
 
+    // prints stuff to stdout, without regard for safety
+    void DEBUG_print_node(const struct Node* node);
+    void DEBUG_print_tree();
+
   private:
     // we must re-obtain the root pointer on every action, so nothing in pmem can really be "cached"
     PMEMobjpool *pop;
@@ -148,14 +152,12 @@ class BzTree {
     };
 
     // === helpers ===
+
     // get metadata struct from pop
     const struct BzPMDKMetadata *get_metadata();
 
     // traverses the tree and finds the leaf node in which the key should be
     TOID(struct Node) find_leaf(const std::string key);
-
-    // prints a node to stdout, without regard for safety
-    void DEBUG_print_node(const struct Node* node);
 
     // === structural modifications ===
     // void split_node()

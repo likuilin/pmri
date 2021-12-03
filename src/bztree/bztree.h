@@ -128,7 +128,7 @@ class BzTree {
 
     // prints stuff to stdout, without regard for safety
     void DEBUG_print_node(const struct Node* node);
-    void DEBUG_print_tree();
+    void DEBUG_print_tree(TOID(struct Node) node_oid = TOID_NULL(struct Node), int h = 0, int height = 0);
 
   private:
     // we must re-obtain the root pointer on every action, so nothing in pmem can really be "cached"
@@ -157,9 +157,32 @@ class BzTree {
     const struct BzPMDKMetadata *get_metadata();
 
     // traverses the tree and finds the leaf node in which the key should be
+    // expects the gc to be already protected
     TOID(struct Node) find_leaf(const std::string key);
 
+    // like find_leaf but it returns tuple(the leaf, the parent, id in parent) instead,
+    // all the info needed for structural modifications
+    // since inner nodes are immutable, this is safe
+    // the height of the tree cannot be 1, though (otherwise we have to replace the
+    // root object instead of an inner node, best to treat that as a special case)
+    // since the caller must check that the height is not 1, find_leaf_parent must use the
+    // caller's md, because if the height becomes 1 between the calls, there are problems
+    // expects the gc to be already protected
+    std::tuple<TOID(struct Node), TOID(struct Node), uint16_t>
+      find_leaf_parent(const std::string key, const struct BzPMDKMetadata *md);
+
     // === structural modifications ===
-    // void split_node()
+    // note: all of these invalidate the tree
+    // you must unprotect before calling them, and the only safe thing to do after calling them
+    // is re-traverse the tree down from a new get_metadata root
+
+    // makes the amount of space in the node, first by trying to compact the node, then by splitting
+    // void node_make_space(const std::string key, size_t space_required);
+
+    // compacts node
+    // void node_compact(const std::string key)
+
+    // splits node once
+    // void node_split(const std::string key)
 };
 }  // namespace pmwcas

@@ -86,25 +86,49 @@ const struct BzPMDKMetadata *BzTree::get_metadata() {
 
 TOID(struct Node) BzTree::find_leaf(const std::string key) {
   auto *md = get_metadata();
+  if (md->height == 1) return md->root_node;
 
-  for (size_t i=0; i<md->height-1; i++) {
-    // todo(req): dereference inner nodes
-    assert(0);
-  }
-
-  return md->root_node;
+  auto [leaf, parent, idx] = find_leaf_parent(key, md);
+  return leaf;
 }
 
-/*
-std::optional<uint64_t> leaf_find_key(TOID(struct Node) node, const std::string key, bool only_visible) {
-  const struct NodeHeader *header = reinterpret_cast<const struct NodeHeader*>(D_RO(node));
-  const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(header + 1);
-  for (uint16_t i=0; i<header->record_count; i++) {
-    if (only_visible && !nmd[i].visible) continue;
-    
+std::tuple<TOID(struct Node), TOID(struct Node), uint16_t>
+    BzTree::find_leaf_parent(const std::string key, const struct BzPMDKMetadata *md) {
+  assert(md->height > 1);
+
+  TOID(struct Node) child;
+  TOID(struct Node) parent = md->root_node;
+
+  uint16_t i;
+  // perform height-1 dereferences to get to leaf
+  uint64_t h=0;
+  while (true) { // for (uint64_t h=0; h<md->height-1; h++) {
+    // the inner nodes do not have a full TOID!
+    // the spec dictates that they are 8 bytes, which means we don't have enough space for pool id
+    // the tradeoff is that this means inner nodes can hold more keys, but, bztrees cannot span pools
+    // for us, we need to reconstitute the TOID from the parent's pool id and the offset in the node body
+    const struct NodeHeader *header = &D_RO(parent)->header;
+    const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(header + 1);
+
+    // todo(optimization): binary search sorted keys, inner nodes are guaranteed to
+    // be sorted because they are immutable
+    for (i=0; i<header->status_word.record_count; i++) {
+      assert(nmd[i].total_len == nmd[i].key_len + 8); // optimization to use 8 for value len
+      if (strcmp(&D_RO(parent)->body[nmd[i].offset], key.c_str()) >= 0) break;
+    }
+    uint64_t offset = *(uint64_t*)&D_RO(parent)->body[nmd[i].offset + nmd[i].key_len];
+
+    // warning: here we are reaching into TOID internals to get and set offset
+    child.oid.pool_uuid_lo = parent.oid.pool_uuid_lo;
+    child.oid.off = offset;
+
+    // if we're at the end, then return
+    if (++h >= md->height-1) return std::make_tuple(child, parent, i);
+
+    // prepare next iteration
+    parent = child;
   }
 }
-*/
 
 void BzTree::DEBUG_print_node(const struct Node* node) {
   printf("=== node %p ===\n", node);
@@ -131,16 +155,46 @@ void BzTree::DEBUG_print_node(const struct Node* node) {
   }
 }
 
-void BzTree::DEBUG_print_tree() {
-  // todo(feature): traverse tree
-  printf("todo print entire tree, here take the root node\n");
-  auto *md = get_metadata();
+void BzTree::DEBUG_print_tree(TOID(struct Node) node_oid /*= TOID_NULL(struct Node)*/, int h /*= 0*/, int height /*= 0*/) {
+  if (TOID_IS_NULL(node_oid)) {
+    auto *md = get_metadata();
 
-  for (size_t i=0; i<md->height-1; i++) {
-    assert(0);
+    printf("=== TREE ===\n");
+    printf("height:       %lu\n", md->height);
+    printf("global epoch: %lu\n", md->global_epoch);
+    printf("\n");
+    printf("root"); // hack to prefix root with one space before first node, lol
+    DEBUG_print_tree(md->root_node, 1, md->height);
+    return;
   }
 
-  DEBUG_print_node(D_RO(md->root_node));
+  const struct Node *node = D_RO(node_oid);
+
+  printf("%*s%s node @ %p {\n", height*2 - 1, "", h == height ? "leaf" : "inner", node);
+
+  const struct NodeHeader *header = &node->header;
+  const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(header + 1);
+
+  for (size_t i=0; i<header->status_word.record_count; i++) {
+    if (h != height) {
+      // inner node
+      printf("%*skey=%s\n", height*2, "", &node->body[nmd[i].offset]);
+
+      // warning: here we are reaching into TOID internals to get and set offset
+      TOID(struct Node) child;
+      child.oid.pool_uuid_lo = node_oid.oid.pool_uuid_lo;
+      child.oid.off = *(uint64_t*)&node->body[nmd[i].offset + nmd[i].key_len];
+
+      DEBUG_print_tree(child, h+1, height);
+      // extra newline to separate out key value sections
+      printf("\n");
+    } else {
+      // child node
+      printf("%*skey=%s value=%s\n", height*2, "",
+        &node->body[nmd[i].offset], &node->body[nmd[i].offset + nmd[i].key_len]);
+    }
+  }
+  printf("%*s}\n", height*2 - 1, "");
 }
 
 bool BzTree::insert(const std::string key, const std::string value) {
@@ -410,8 +464,6 @@ bool BzTree::erase(const std::string key) {
   assert(epoch.Unprotect().ok());
   return false;
 }
-
-// todo(optimization): we should check if the node can be compacted and if so, do that first before splitting
 
 // post increment
 BzTree::iterator& BzTree::iterator::operator++() {

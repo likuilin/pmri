@@ -58,145 +58,6 @@ BzTree::~BzTree() {
   Thread::ClearRegistry(true);
 }
 
-void BzTree::destroy() {
-  // todo(optimization): we should free all the nodes, otherwise they're still taking up memory
-  // either that or just rm the pool object after closing it
-  // todo(benchmarks): we may actually need to do the latter for benchmarks
-
-  // destroy the tree root node
-  D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->metadata = TOID_NULL(struct BzPMDKMetadata);
-  D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->desc_pool = TOID_NULL(DescriptorPool);
-
-  // clear decriptor pool and prevent reuse of this instance by resetting pop
-  if (desc_pool) desc_pool->~DescriptorPool();
-  desc_pool = nullptr;
-  pop = nullptr;
-
-  // clear aux stuff
-  garbage.Uninitialize();
-  epoch.Uninitialize();
-
-  // clear tls
-  Thread::ClearRegistry(true);
-}
-
-const struct BzPMDKMetadata *BzTree::get_metadata() {
-  return D_RO(D_RO(POBJ_ROOT(pop, struct BzPMDKRootObj))->metadata);
-}
-
-TOID(struct Node) BzTree::find_leaf(const std::string key) {
-  auto *md = get_metadata();
-  if (md->height == 1) return md->root_node;
-
-  auto [leaf, parent, idx] = find_leaf_parent(key, md);
-  return leaf;
-}
-
-std::tuple<TOID(struct Node), TOID(struct Node), uint16_t>
-    BzTree::find_leaf_parent(const std::string key, const struct BzPMDKMetadata *md) {
-  assert(md->height > 1);
-
-  TOID(struct Node) child;
-  TOID(struct Node) parent = md->root_node;
-
-  uint16_t i;
-  // perform height-1 dereferences to get to leaf
-  uint64_t h=0;
-  while (true) { // for (uint64_t h=0; h<md->height-1; h++) {
-    // the inner nodes do not have a full TOID!
-    // the spec dictates that they are 8 bytes, which means we don't have enough space for pool id
-    // the tradeoff is that this means inner nodes can hold more keys, but, bztrees cannot span pools
-    // for us, we need to reconstitute the TOID from the parent's pool id and the offset in the node body
-    const struct NodeHeader *header = &D_RO(parent)->header;
-    const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(header + 1);
-
-    // todo(optimization): binary search sorted keys, inner nodes are guaranteed to
-    // be sorted because they are immutable
-    for (i=0; i<header->status_word.record_count; i++) {
-      assert(nmd[i].total_len == nmd[i].key_len + 8); // optimization to use 8 for value len
-      if (strcmp(&D_RO(parent)->body[nmd[i].offset], key.c_str()) >= 0) break;
-    }
-    uint64_t offset = *(uint64_t*)&D_RO(parent)->body[nmd[i].offset + nmd[i].key_len];
-
-    // warning: here we are reaching into TOID internals to get and set offset
-    child.oid.pool_uuid_lo = parent.oid.pool_uuid_lo;
-    child.oid.off = offset;
-
-    // if we're at the end, then return
-    if (++h >= md->height-1) return std::make_tuple(child, parent, i);
-
-    // prepare next iteration
-    parent = child;
-  }
-}
-
-void BzTree::DEBUG_print_node(const struct Node* node) {
-  printf("=== node %p ===\n", node);
-  if (!node) return;
-  printf("node_size:    %d\n", node->header.node_size);
-  printf("sorted_count: %d\n", node->header.sorted_count);
-  printf("-\n");
-  printf("control:      %d\n", node->header.status_word.control);
-  printf("frozen:       %d\n", node->header.status_word.frozen);
-  printf("record_count: %d\n", node->header.status_word.record_count);
-  printf("block_size:   %d\n", node->header.status_word.block_size);
-  printf("delete_size:  %d\n", node->header.status_word.delete_size);
-  printf("-\n");
-  printf("data block:\n");
-  assert(sizeof(node->body) % 16 == 0);
-  for (size_t i=0; i<sizeof(node->body); i+=16) {
-    for (size_t j=0; j<16; j++) printf("%02x ", (unsigned char)node->body[i+j]);
-    printf("| ");
-    for (size_t j=0; j<16; j++) {
-      if (node->body[i+j] >= 0x20 && node->body[i+j] < 0x7f) printf("%c", node->body[i+j]);
-      else printf(".");
-    }
-    printf("\n");
-  }
-}
-
-void BzTree::DEBUG_print_tree(TOID(struct Node) node_oid /*= TOID_NULL(struct Node)*/, int h /*= 0*/, int height /*= 0*/) {
-  if (TOID_IS_NULL(node_oid)) {
-    auto *md = get_metadata();
-
-    printf("=== TREE ===\n");
-    printf("height:       %lu\n", md->height);
-    printf("global epoch: %lu\n", md->global_epoch);
-    printf("\n");
-    printf("root"); // hack to prefix root with one space before first node, lol
-    DEBUG_print_tree(md->root_node, 1, md->height);
-    return;
-  }
-
-  const struct Node *node = D_RO(node_oid);
-
-  printf("%*s%s node @ %p {\n", height*2 - 1, "", h == height ? "leaf" : "inner", node);
-
-  const struct NodeHeader *header = &node->header;
-  const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(header + 1);
-
-  for (size_t i=0; i<header->status_word.record_count; i++) {
-    if (h != height) {
-      // inner node
-      printf("%*skey=%s\n", height*2, "", &node->body[nmd[i].offset]);
-
-      // warning: here we are reaching into TOID internals to get and set offset
-      TOID(struct Node) child;
-      child.oid.pool_uuid_lo = node_oid.oid.pool_uuid_lo;
-      child.oid.off = *(uint64_t*)&node->body[nmd[i].offset + nmd[i].key_len];
-
-      DEBUG_print_tree(child, h+1, height);
-      // extra newline to separate out key value sections
-      printf("\n");
-    } else {
-      // child node
-      printf("%*skey=%s value=%s\n", height*2, "",
-        &node->body[nmd[i].offset], &node->body[nmd[i].offset + nmd[i].key_len]);
-    }
-  }
-  printf("%*s}\n", height*2 - 1, "");
-}
-
 bool BzTree::insert(const std::string key, const std::string value) {
   size_t space_required = sizeof(struct NodeMetadata) + key.length() + 1 + value.length() + 1;
   // exit early if it is too large for any node
@@ -465,31 +326,26 @@ bool BzTree::erase(const std::string key) {
   return false;
 }
 
-// post increment
-BzTree::iterator& BzTree::iterator::operator++() {
-  // todo
-  return *this;
-}
+void BzTree::destroy() {
+  // todo(optimization): we should free all the nodes, otherwise they're still taking up memory
+  // either that or just rm the pool object after closing it
+  // todo(benchmarks): we may actually need to do the latter for benchmarks
 
-// pre increment
-BzTree::iterator BzTree::iterator::operator++(int) {
-  iterator retval = *this;
-  ++(*this);
-  return retval;
-}
+  // destroy the tree root node
+  D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->metadata = TOID_NULL(struct BzPMDKMetadata);
+  D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->desc_pool = TOID_NULL(DescriptorPool);
 
-bool BzTree::iterator::operator==(BzTree::iterator other) const {
-  // todo
-  return true;
-}
+  // clear decriptor pool and prevent reuse of this instance by resetting pop
+  if (desc_pool) desc_pool->~DescriptorPool();
+  desc_pool = nullptr;
+  pop = nullptr;
 
-bool BzTree::iterator::operator!=(BzTree::iterator other) const {
-  return !(*this == other);
-}
+  // clear aux stuff
+  garbage.Uninitialize();
+  epoch.Uninitialize();
 
-const std::string BzTree::iterator::operator*() const {
-  // todo
-  return "todo";
+  // clear tls
+  Thread::ClearRegistry(true);
 }
 
 }  // namespace pmwcas

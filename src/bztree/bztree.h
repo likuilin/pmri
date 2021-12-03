@@ -5,6 +5,8 @@
 #include "mwcas/mwcas.h"
 #include "common/garbage_list.h"
 
+#pragma once  
+
 // size in bytes of each node
 // this should be = 16 + 16*(num keys) + total key len
 // 16 for header, per key: 8 for metadata, 8 for value ptr, variable for key len
@@ -171,16 +173,16 @@ class BzTree {
     std::tuple<TOID(struct Node), TOID(struct Node), uint16_t>
       find_leaf_parent(const std::string key, const struct BzPMDKMetadata *md);
 
-    // === structural modifications ===
+    // === structural modifications (SMOs) ===
     // note: all of these invalidate the tree
-    // you must unprotect before calling them, and the only safe thing to do after calling them
+    // so, you must unprotect before calling them, and the only safe thing to do after calling them
     // is re-traverse the tree down from a new get_metadata root
 
     // makes the amount of space in the node, first by trying to compact the node, then by splitting
     // void node_make_space(const std::string key, size_t space_required);
 
     // compacts node
-    // void node_compact(const std::string key)
+    void node_compact(const std::string key);
 
     // splits node once
     // void node_split(const std::string key)

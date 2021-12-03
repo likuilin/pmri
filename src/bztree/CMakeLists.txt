@@ -4,6 +4,10 @@ set(UTIL_HEADERS
 
 set(UTIL_SOURCES
   bztree.cc
+  bztree_debug.cc
+  bztree_helpers.cc
+  bztree_iterator.cc
+  bztree_smos.cc
 )
 
 add_library(bztree STATIC ${UTIL_SOURCES} ${UTIL_HEADERS})

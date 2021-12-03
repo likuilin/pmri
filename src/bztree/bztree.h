@@ -165,24 +165,25 @@ class BzTree {
     // like find_leaf but it returns tuple(the leaf, the parent, id in parent) instead,
     // all the info needed for structural modifications
     // since inner nodes are immutable, this is safe
-    // the height of the tree cannot be 1, though (otherwise we have to replace the
-    // root object instead of an inner node, best to treat that as a special case)
-    // since the caller must check that the height is not 1, find_leaf_parent must use the
-    // caller's md, because if the height becomes 1 between the calls, there are problems
+    // if the leaf is the root node then parent is nullopt and id is zero
+    // since when the leaf is root, the parent must be the same for future algorithms,
+    // we must use the caller's md, because if the height changes from or to 1 between calls,
+    // there will be inconsistency
     // expects the gc to be already protected
-    std::tuple<TOID(struct Node), TOID(struct Node), uint16_t>
+    std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, uint16_t>
       find_leaf_parent(const std::string key, const struct BzPMDKMetadata *md);
 
     // === structural modifications (SMOs) ===
-    // note: all of these invalidate the tree
+    // note: all of these invalidate the tree if they return true
     // so, you must unprotect before calling them, and the only safe thing to do after calling them
     // is re-traverse the tree down from a new get_metadata root
+    // returning false means no changes can be made, failures are retried
 
     // makes the amount of space in the node, first by trying to compact the node, then by splitting
     // void node_make_space(const std::string key, size_t space_required);
 
-    // compacts node
-    void node_compact(const std::string key);
+    // compacts node, making deleted key space available and (todo) sorting the keys
+    bool node_compact(const std::string key);
 
     // splits node once
     // void node_split(const std::string key)

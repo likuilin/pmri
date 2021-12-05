@@ -61,10 +61,10 @@ BzTree::~BzTree() {
 bool BzTree::insert(const std::string key, const std::string value) {
   size_t space_required = sizeof(struct NodeMetadata) + key.length() + 1 + value.length() + 1;
   // exit early if it is too large for any node
-  if (space_required > sizeof(struct Node) - sizeof(struct NodeHeader)) return false;
+  if (space_required > BZTREE_MIN_FREE_SPACE) return false;
 
   assert(epoch.Protect().ok());
-  TOID(struct Node) leaf_oid = find_leaf(key);
+  TOID(struct Node) leaf_oid = find_leaf(key, true);
   struct Node *leaf = D_RW(leaf_oid);
   struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
 
@@ -91,9 +91,9 @@ bool BzTree::insert(const std::string key, const std::string value) {
     struct NodeHeaderStatusWord sw = sw_old;
     if (sw.block_size + space_required > sizeof(struct Node) - sizeof(struct NodeHeader) -
         sw.record_count * sizeof(struct NodeMetadata)) {
-      // too large to fit, we have to split the node
-      // todo(req): split node
+      // too large to fit - something went wrong since we never should've seen this from find_leaf's SMOs
       assert(epoch.Unprotect().ok());
+      assert(false);
       return false;
     }
     sw.block_size += key.length() + 1 + value.length() + 1;
@@ -158,8 +158,13 @@ bool BzTree::insert(const std::string key, const std::string value) {
 }
 
 bool BzTree::update(const std::string key, const std::string value) {
+  // fail if the size required is larger than min free space, because the key can potentially cause rebalancing issues
+  size_t space_required = key.length() + 1 + value.length() + 1;
+  if (sizeof(struct NodeMetadata) + space_required > BZTREE_MIN_FREE_SPACE) return false;
+
+  // now we start
   assert(epoch.Protect().ok());
-  TOID(struct Node) leaf_oid = find_leaf(key);
+  TOID(struct Node) leaf_oid = find_leaf(key, true);
   struct Node *leaf = D_RW(leaf_oid);
   struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
 
@@ -196,9 +201,9 @@ bool BzTree::update(const std::string key, const std::string value) {
         size_t space_required = key.length() + 1 + value.length() + 1;
         if (sw.block_size + space_required > sizeof(struct Node) - sizeof(struct NodeHeader) -
             sw.record_count * sizeof(struct NodeMetadata)) {
-          // too large to fit, we have to split the node
-          // todo(req): split node
+          // too large to fit - something went wrong since we never should've seen this from find_leaf's SMOs
           assert(epoch.Unprotect().ok());
+          assert(false);
           return false;
         }
 
@@ -221,7 +226,7 @@ bool BzTree::update(const std::string key, const std::string value) {
         // this one swaps in the offset and total_len, so we can also add in the delete_size
         // (not mentioned in paper, but it's a good heuristic thing to add)
         // since we need to pmwcas in the status word anyways to make sure the node didn't get frozen
-        sw.delete_size += space_required;
+        sw.delete_size += nmdi.total_len;
 
         nmdi.offset = sizeof(leaf->body) - sw.block_size;
         assert(nmdi.key_len == key.length() + 1);
@@ -234,9 +239,10 @@ bool BzTree::update(const std::string key, const std::string value) {
           auto *desc = desc_pool->AllocateDescriptor();
           assert(desc);
           desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw_old, *(uint64_t*)&sw);
-          desc->AddEntry((uint64_t*)&nmd[sw.record_count-1], *(uint64_t*)&nmdi_old, *(uint64_t*)&nmdi);
+          desc->AddEntry((uint64_t*)&nmd[i], *(uint64_t*)&nmdi_old, *(uint64_t*)&nmdi);
           if (!desc->MwCAS()) {
             // possible frozen or insert, optimistically continue, it'll detect frozen if so
+            // todo(optimization): we could un-allocate the space... uhh, that's dangerous though
             continue;
           }
         }
@@ -257,7 +263,7 @@ std::optional<std::string> BzTree::lookup(const std::string key) {
   // we still need protection against deletion for this
   assert(epoch.Protect().ok());
 
-  TOID(struct Node) leaf_oid = find_leaf(key);
+  TOID(struct Node) leaf_oid = find_leaf(key, false);
   const struct Node *leaf = D_RO(leaf_oid);
   const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(leaf->body);
 
@@ -278,7 +284,8 @@ std::optional<std::string> BzTree::lookup(const std::string key) {
 
 bool BzTree::erase(const std::string key) {
   assert(epoch.Protect().ok());
-  TOID(struct Node) leaf_oid = find_leaf(key);
+  // todo(optimization): is perform_smo=true or false better here?
+  TOID(struct Node) leaf_oid = find_leaf(key, false);
   struct Node *leaf = D_RW(leaf_oid);
   struct NodeMetadata *nmd = reinterpret_cast<struct NodeMetadata*>(leaf->body);
 
@@ -301,7 +308,7 @@ bool BzTree::erase(const std::string key) {
       // erase node
       nmdi.offset = 0;
       nmdi.visible = 0;
-      sw.delete_size += 1;
+      sw.delete_size += nmdi.total_len + sizeof(nmdi);
 
       // pmwcas to install new values
       auto *desc = desc_pool->AllocateDescriptor();
@@ -314,8 +321,6 @@ bool BzTree::erase(const std::string key) {
         // todo(optimization): tail call
         return erase(key);
       }
-
-      // todo(optimization): section 5 compaction of node based on delete_size heuristic would go here
 
       return true;
     }

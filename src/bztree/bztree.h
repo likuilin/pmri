@@ -9,10 +9,22 @@
 
 // size in bytes of each node
 // this should be = 16 + 16*(num keys) + total key len
-// 16 for header, per key: 8 for metadata, 8 for value ptr, variable for key len
+// 16 for header, per key: 8 for metadata, 8 for value ptr, variable for key 
 #define BZTREE_NODE_SIZE 256
 
-// for testing: key len is 8, so 10 keys is 16+16*10+8*10 = 256 bytes exactly
+// minimum free space for node to not be split during non-read traversal
+// warning: keys larger than this minus 16 (nmd + child ptr) currently cannot be inserted
+// todo(feature): add this - it'd require a lot of design decision though, since we shouldn't assume
+// that the large key needs to be propagated upwards every time we traverse the tree for an insertion, right
+// but, on the other hand, we don't want to have to keep track of /all/ the ancestors during traversal
+// since that introduces a variably sized data structure depending on the height
+#define BZTREE_MIN_FREE_SPACE 40
+
+// max free space before a node is merged
+#define BZTREE_MAX_FREE_SPACE 128
+
+// maximum deleted space before a node is compacted
+#define BZTREE_MAX_DELETED_SPACE 100
 
 namespace pmwcas {
 
@@ -43,7 +55,6 @@ POBJ_LAYOUT_END(bztree_layout);
 struct NodeHeaderStatusWord {
   uint8_t control       : 3;
   bool frozen           : 1;
-  // next three only exist for leaf nodes
   uint16_t record_count : 16;
   uint32_t block_size   : 22;
   uint32_t delete_size  : 22;
@@ -147,7 +158,10 @@ class BzTree {
     // destroy function for garbage list
     static void DestroyNode(void *destroyContext, void *p) {
 #ifdef PMDK
-      POBJ_FREE(p);
+      auto oid_ptr = pmemobj_oid(p);
+      TOID(char) ptr_cpy;
+      TOID_ASSIGN(ptr_cpy, oid_ptr);
+      POBJ_FREE(&ptr_cpy);
 #else
 #error "Non-PMDK not implemented"
 #endif  // PMDK
@@ -156,35 +170,74 @@ class BzTree {
     // === helpers ===
 
     // get metadata struct from pop
-    const struct BzPMDKMetadata *get_metadata();
+    struct BzPMDKMetadata *get_metadata();
 
-    // traverses the tree and finds the leaf node in which the key should be
+    // traverses the tree to find where a key would go, if not in the tree already
+    // if perform_smo is on, will heuristically SMO nodes that need it and re-launch itself
+    // required except if we're traversing to read, because otherwise, there may not be room to insert
+    // either at the leaf or somewhere along the ancestor chain, not necessarily
     // expects the gc to be already protected
-    TOID(struct Node) find_leaf(const std::string key);
+    TOID(struct Node) find_leaf(const std::string key, bool perform_smo);
 
-    // like find_leaf but it returns tuple(the leaf, the parent, id in parent) instead,
-    // all the info needed for structural modifications
-    // since inner nodes are immutable, this is safe
-    // the height of the tree cannot be 1, though (otherwise we have to replace the
-    // root object instead of an inner node, best to treat that as a special case)
-    // since the caller must check that the height is not 1, find_leaf_parent must use the
-    // caller's md, because if the height becomes 1 between the calls, there are problems
+    // like (and used by) find_leaf but it returns tuple(the leaf, the parent, id in parent) instead,
+    // all the info needed for structural modifications, in order to be recursively called
+    // if parent is nullopt then the node is the root
     // expects the gc to be already protected
-    std::tuple<TOID(struct Node), TOID(struct Node), uint16_t>
-      find_leaf_parent(const std::string key, const struct BzPMDKMetadata *md);
+    std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, uint16_t>
+        find_leaf_parent(const std::string key, bool perform_smo);
+
+    // implementation for find_leaf_parent and find_leaf, so that it can potentially fail
+    // and also perform any SMOs needed during traversal
+    // if repeatedly called on the same tree, will only fail up to O(height of tree) times
+    // if it fails, then we need to acquire a new md, since root could have changed
+    // expects the gc to be already protected
+    std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, uint16_t>>
+        find_leaf_parent_smo(const std::string key, bool perform_smo, struct BzPMDKMetadata *md);
+
+    // helpers for getting and setting the pmdk offset of a TOID
+    // note: this is breaking into pmdk internals, but necessary because
+    // in the node we want to only store offset pointers
+    static inline void toid_set_offset(TOID(struct Node) target, uint64_t off);
+    static inline uint64_t toid_get_offset(TOID(struct Node) target);
+
+    // helper for adding a TOID to a mwcas descriptor
+    // this is required in a few places because TOIDs are not actually one word, so they
+    // can't be atomically set in-place
+    // TOID(T) is a macro that ends up using ##T, so we can't template it like TOID(T) sadly
+    template<typename T> static void desc_add_toid(Descriptor *desc, T *loc, T a, T b);
+
+    // helper for swapping out a node pointer inside a node or inside the root
+    // this is the only safe thing to do without freezing a node
+    // returns if it fails (only if the node freezes)
+    bool swap_node(std::optional<TOID(struct Node)> parent, uint64_t *node_off_ptr,
+        TOID(struct Node) old_node, TOID(struct Node) new_node);
 
     // === structural modifications (SMOs) ===
-    // note: all of these invalidate the tree
+    // note: all of these invalidate the tree if they return true
     // so, you must unprotect before calling them, and the only safe thing to do after calling them
     // is re-traverse the tree down from a new get_metadata root
+    // returning false means no changes can be made, not necessarily that it failed -
+    // retryable failures are retried
+    // all of these expect the gc to be already protected
 
-    // makes the amount of space in the node, first by trying to compact the node, then by splitting
-    // void node_make_space(const std::string key, size_t space_required);
-
-    // compacts node
-    void node_compact(const std::string key);
+    // compacts node, making deleted key space available and (todo) sorting the keys
+    // returns allocated new node, does not delete old node
+    // new node must be spliced into parent
+    TOID(struct Node) node_compact(TOID(struct Node) node);
 
     // splits node once
-    // void node_split(const std::string key)
+    // returns allocated new parent and the two children (for deleting on failure), does not delete old nodes
+    // new parent must be spliced into grandparent of the split nodes
+    // if parent is nullopt, then a new parent is created (split of root)
+    std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
+        node_split(std::optional<TOID(struct Node)> parent, TOID(struct Node) node);
+
+    // merges sibling nodes
+    // takes the parent node and the index of the first of the two children, and the two children
+    // this is so that our pmwcas can ensure that the children are what they used to be
+    // returns allocated new parent, does not delete old nodes
+    // new parent must be spliced into grandparent of the merged nodes
+    TOID(struct Node) node_merge(TOID(struct Node) parent, uint16_t idx,
+        TOID(struct Node) ca, TOID(struct Node) chb);
 };
 }  // namespace pmwcas

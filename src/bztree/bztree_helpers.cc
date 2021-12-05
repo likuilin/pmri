@@ -9,13 +9,15 @@ const struct BzPMDKMetadata *BzTree::get_metadata() {
 
 TOID(struct Node) BzTree::find_leaf(const std::string key) {
   auto *md = get_metadata();
+  if (md->height == 1) return md->root_node;
+
   auto [leaf, parent, idx] = find_leaf_parent(key, md);
   return leaf;
 }
 
-std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, uint16_t>
+std::tuple<TOID(struct Node), TOID(struct Node), uint16_t>
     BzTree::find_leaf_parent(const std::string key, const struct BzPMDKMetadata *md) {
-  if (md->height == 1) return std::make_tuple(md->root_node, std::nullopt, 0);
+  assert(md->height > 1);
 
   TOID(struct Node) child;
   TOID(struct Node) parent = md->root_node;

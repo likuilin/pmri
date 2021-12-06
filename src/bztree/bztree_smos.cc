@@ -119,7 +119,6 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
       // make this less questionable, first three bits are used by pmwcas, though, ick
       if (((*(uint64_t*)i->second.c_str()) & ~0x7) == (node.oid.off & ~0x7)) break;
     }
-    printf("asdf %d\n", i-parent_kv.begin());
     assert(i != parent_kv.end());
 
     // replacing i, we want the left ptr with the key as the rightmost element of the child
@@ -129,7 +128,6 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
     parent_kv.insert(i+1, std::make_pair(right.back().first, right_ptr));
   } else {
     // new parent, probably new root - in this case we need the first one to have a key of ""
-    parent_kv.push_back(std::make_pair("", ""));
     parent_kv.push_back(std::make_pair(left.back().first, left_ptr));
     parent_kv.push_back(std::make_pair(right.back().first, right_ptr));
   }

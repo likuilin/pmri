@@ -184,7 +184,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
       // the first key does not matter, it is zero for consistency
       // so we check starting at the second key
       // we want the last key less than the one past the one, which is one minus the first key that's <= it
-      for (i=1; i<parent_sw.record_count; i++) {
+      for (i=0; i<parent_sw.record_count; i++) {
         assert(nmd[i].total_len == nmd[i].key_len + 8); // optimization to use 8 for value len
         if (strcmp(&D_RO(parent)->body[nmd[i].offset], key.c_str()) >= 0) break;
       }
@@ -202,7 +202,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
       // todo(safety): we don't actually hold a lock over our siblings here, so, what if they change between this check
       // and when we do actual merging? is merging an action that can fail, unlike the other node operations? sigh
       // left zero does not actually have a child, remember
-      if (i > 1) {
+      if (i > 0) {
         sib_left = parent;
         toid_set_offset(&sib_left, *(uint64_t*)&D_RW(parent)->body[nmd[i-1].offset + nmd[i-1].key_len]);
         if (child_fs + free_space(&D_RO(sib_left)->header.status_word) < BZTREE_MIN_FREE_SPACE + sizeof(struct Node))

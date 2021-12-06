@@ -120,25 +120,20 @@ GTEST_TEST(BzTreeTest, LookupSingleSplit) {
   }
 }
 
-GTEST_TEST(BzTreeTest, LookupMultipleSplit) {
+GTEST_TEST(BzTreeTest, LookupMultiLevelSplit) {
   std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
 
-  // Fill one page and a bit
-  for (auto i = 0; i < BZTREE_CAPACITY*5 ; ++i) {
+  for (auto i = 0; i < BZTREE_CAPACITY*10 ; ++i) {
     std::string kid = _kid(i);
     std::string vid = _vid(i);
     t->tree.insert(kid, vid);
 
     ASSERT_TRUE(t->tree.lookup(kid))
         << "searching for the just inserted key k=" << kid << " yields nothing";
-        t->tree.DEBUG_print_tree();
-    if (i > 25 && !t->tree.lookup("k000025")) {
-        assert(0);
-    }
   }
 
   // Lookup all values
-  for (auto i = 0; i < BZTREE_CAPACITY*5; ++i) {
+  for (auto i = 0; i < BZTREE_CAPACITY*10; ++i) {
     std::string kid = _kid(i);
     std::string vid = _vid(i);
     auto v = t->tree.lookup(kid);

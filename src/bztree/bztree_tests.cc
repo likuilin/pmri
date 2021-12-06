@@ -79,31 +79,51 @@ GTEST_TEST(BzTreeTest, LookupSingleLeaf) {
   ASSERT_FALSE(t->tree.insert("key", "value")) << "insertion causing node split";
 }
 
-GTEST_TEST(BzTreeTest, LookupSingleSplit) {
+GTEST_TEST(BzTreeTest, CompactSingleLeaf) {
   std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
 
-  // Fill one page and a bit
-  for (auto i = 0; i < BZTREE_CAPACITY + 3; ++i) {
+  t->tree.insert("always kept", "safe and sound");
+
+  // add and remove 3x capacity
+  for (auto i = 0; i < BZTREE_CAPACITY*3; ++i) {
     std::string kid = _kid(i);
     std::string vid = _vid(i);
+    printf("Insert\n");
     t->tree.insert(kid, vid);
-
-t->tree.DEBUG_print_tree();
     ASSERT_TRUE(t->tree.lookup(kid))
         << "searching for the just inserted key k=" << kid << " yields nothing";
+    printf("Erase\n");
+    t->tree.erase(kid);
+    ASSERT_FALSE(t->tree.lookup(kid))
+        << "searching for the just erased key k=" << kid << " yields something";
   }
-
-  // Lookup all values
-  for (auto i = 0; i < BZTREE_CAPACITY + 3; ++i) {
-    std::string kid = _kid(i);
-    std::string vid = _vid(i);
-    auto v = t->tree.lookup(kid);
-    ASSERT_TRUE(v) << "key=" << kid << " is missing";
-    ASSERT_TRUE(v == vid) << "key=" << kid << " wrong value";
-  }
-
-  ASSERT_FALSE(t->tree.insert("key", "value")) << "insertion causing node split";
 }
+
+// GTEST_TEST(BzTreeTest, LookupSingleSplit) {
+  // std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+
+  // // Fill one page and a bit
+  // for (auto i = 0; i < BZTREE_CAPACITY + 3; ++i) {
+    // std::string kid = _kid(i);
+    // std::string vid = _vid(i);
+    // t->tree.insert(kid, vid);
+
+// t->tree.DEBUG_print_tree();
+    // ASSERT_TRUE(t->tree.lookup(kid))
+        // << "searching for the just inserted key k=" << kid << " yields nothing";
+  // }
+
+  // // Lookup all values
+  // for (auto i = 0; i < BZTREE_CAPACITY + 3; ++i) {
+    // std::string kid = _kid(i);
+    // std::string vid = _vid(i);
+    // auto v = t->tree.lookup(kid);
+    // ASSERT_TRUE(v) << "key=" << kid << " is missing";
+    // ASSERT_TRUE(v == vid) << "key=" << kid << " wrong value";
+  // }
+
+  // ASSERT_FALSE(t->tree.insert("key", "value")) << "insertion causing node split";
+// }
 
 } // namespace test
 } // namespace pmwcas

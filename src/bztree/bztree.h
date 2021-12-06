@@ -61,8 +61,8 @@ struct NodeHeaderStatusWord {
 };
 #pragma pack(1)
 struct NodeHeader {
-  uint32_t node_size    : 32;
-  uint32_t sorted_count : 32;
+  uint32_t node_size    : 32; // note: unused, our nodes are constant size
+  uint32_t sorted_count : 32; // note: unused, we do not have sorted keys yet
   struct NodeHeaderStatusWord status_word;
 };
 static_assert(sizeof(struct NodeHeader) == 16);

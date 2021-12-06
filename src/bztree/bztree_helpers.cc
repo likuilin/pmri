@@ -9,8 +9,12 @@ struct BzPMDKMetadata *BzTree::get_metadata() {
 
 template<typename T> void BzTree::desc_add_toid(Descriptor *desc, T *loc, T a, T b) {
   static_assert(sizeof(T) == 16);
+          printf("toid %p %p\n", a.oid.pool_uuid_lo, a.oid.off);
+          printf("????????????????b %p %p %p %p\n", *(uint64_t*)loc, (uint64_t*)loc, *(uint64_t*)&a, *(uint64_t*)&b);
   desc->AddEntry((uint64_t*)loc, *(uint64_t*)&a, *(uint64_t*)&b);
+          printf("????????????????b\n");
   desc->AddEntry(((uint64_t*)loc)+1, *(((uint64_t*)&a)+1), *(((uint64_t*)&b)+1));
+          printf("????????????????b\n");
 }
 
 TOID(struct Node) BzTree::find_leaf(const std::string key, bool perform_smo) {
@@ -79,6 +83,8 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
     bool root_compact = root_sw->delete_size > BZTREE_MAX_DELETED_SPACE;
     bool root_split = sizeof(struct Node) - sizeof(struct NodeHeader) - root_sw->block_size -
                         (root_sw->record_count*(sizeof(struct NodeMetadata))) < BZTREE_MIN_FREE_SPACE;
+    printf("root smo: %d %d\n", root_sw->delete_size > BZTREE_MAX_DELETED_SPACE);
+    printf("root smo: c %d s %d\n", root_compact, root_split);
 
     // root split needs to be a special case because we modify height, so the root cannot be swapped with swap_node
     // todo(optimization): move root_compact out of here, it's needlessly complex (no new md needed, and with it, no
@@ -109,6 +115,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
 
     // if both are needed, perform compact first, since it's possible splitting isn't needed after compaction
     // (whereas splitting will implicitly compact them, so the resulting ones might just get merged back next step)
+          printf("????????????????z\n");
     if (root_compact) md_new->root_node = node_compact(md->root_node);
     else if (root_split) {
         std::tie(md_new->root_node, new_children) = node_split(std::nullopt, md->root_node);
@@ -186,6 +193,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
                             (child_sw->record_count*(sizeof(struct NodeMetadata)));
       bool do_split = free_space < BZTREE_MIN_FREE_SPACE;
       bool do_merge = free_space > BZTREE_MAX_FREE_SPACE;
+      printf("smo: c %d s %d m %d\n", do_compact, do_split, do_merge);
 
       // compact takes priority because it may remove/add need to do splits or merges, and is implicitly done for them
       if (do_compact) {

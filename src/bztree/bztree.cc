@@ -91,6 +91,7 @@ bool BzTree::insert(const std::string key, const std::string value) {
     struct NodeHeaderStatusWord sw = sw_old;
     if (sw.block_size + space_required > sizeof(struct Node) - sizeof(struct NodeHeader) -
         sw.record_count * sizeof(struct NodeMetadata)) {
+
       // too large to fit - something went wrong since we never should've seen this from find_leaf's SMOs
       assert(epoch.Unprotect().ok());
       assert(false);
@@ -313,8 +314,8 @@ bool BzTree::erase(const std::string key) {
       // pmwcas to install new values
       auto *desc = desc_pool->AllocateDescriptor();
       assert(desc);
-      desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw, *(uint64_t*)&sw_old);
-      desc->AddEntry((uint64_t*)&nmd[i], *(uint64_t*)&nmdi, *(uint64_t*)&nmdi_old);
+      desc->AddEntry((uint64_t*)&leaf->header.status_word, *(uint64_t*)&sw_old, *(uint64_t*)&sw);
+      desc->AddEntry((uint64_t*)&nmd[i], *(uint64_t*)&nmdi_old, *(uint64_t*)&nmdi);
       if (!desc->MwCAS()) {
         // node has unfortunately become frozen in the meantime, or something, we have to re-traverse
         assert(epoch.Unprotect().ok());

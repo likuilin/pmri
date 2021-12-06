@@ -16,8 +16,7 @@ template<typename T> void BzTree::desc_add_toid(Descriptor *desc, T *loc, T a, T
 }
 
 TOID(struct Node) BzTree::find_leaf(const std::string key, bool perform_smo) {
-  auto *md = get_metadata();
-  auto [leaf, parent, idx] = find_leaf_parent(key, md);
+  auto [leaf, parent, idx] = find_leaf_parent(key, perform_smo);
   return leaf;
 }
 
@@ -128,6 +127,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
         // destroy old metadata and root
         assert(garbage.Push(md, BzTree::DestroyNode, nullptr).ok());
         assert(garbage.Push(D_RW(md->root_node), BzTree::DestroyNode, nullptr).ok());
+        DEBUG_print_tree();
       } else {
         // destroy new metadata and root and children, if any
         POBJ_FREE(md_new);
@@ -169,10 +169,13 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
     uint16_t i;
     {
       const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(parent_header + 1);
-      for (i=0; i<parent_sw.record_count; i++) {
+      // the first key does not matter, the value of it represents everything less than the second key
+      // we want the last key less than the one past the one, which is one minus the first key that's <= it
+      for (i=1; i<parent_sw.record_count; i++) {
         assert(nmd[i].total_len == nmd[i].key_len + 8); // optimization to use 8 for value len
-        if (strcmp(&D_RO(parent)->body[nmd[i].offset], key.c_str()) >= 0) break;
+        if (strcmp(&D_RO(parent)->body[nmd[i].offset], key.c_str()) < 0) break;
       }
+      i--;
       child_off_ptr = (uint64_t*)&D_RW(parent)->body[nmd[i].offset + nmd[i].key_len];
 
       // dereference child (first set is to set pool id for first iteration)

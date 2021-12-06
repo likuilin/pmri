@@ -6,6 +6,8 @@
 
 #define GLOBAL_EPOCH_OFFSET_BIT (1 << 27)
 
+#define DEBUG_PRINT_ACTIONS 1
+
 namespace pmwcas {
 
 BzTree::BzTree() {
@@ -19,6 +21,7 @@ BzTree::BzTree() {
   const struct BzPMDKMetadata *metadata = this->get_metadata();
 
   if (metadata == nullptr) {
+    if (DEBUG_PRINT_ACTIONS) printf("--- init new\n");
     // new bztree, who this
     TOID(struct BzPMDKMetadata) newmetadata_oid;
     POBJ_ZNEW(pop, &newmetadata_oid, struct BzPMDKMetadata);
@@ -40,6 +43,7 @@ BzTree::BzTree() {
     rootobj->metadata = newmetadata_oid;
     rootobj->desc_pool = desc_pool_oid;
   } else {
+    if (DEBUG_PRINT_ACTIONS) printf("--- init existing\n");
     // grab the descriptor pool ptr
     // todo(persistence): check if we have to initialize? DescriptorPool has a third param for existing vm addr...
     desc_pool = D_RW(D_RW(POBJ_ROOT(pop, struct BzPMDKRootObj))->desc_pool);
@@ -59,6 +63,7 @@ BzTree::~BzTree() {
 }
 
 bool BzTree::insert(const std::string key, const std::string value) {
+  if (DEBUG_PRINT_ACTIONS) printf("--- insert %s %s\n", key.c_str(), value.c_str());
   size_t space_required = sizeof(struct NodeMetadata) + key.length() + 1 + value.length() + 1;
   // exit early if it is too large for any node
   if (space_required > BZTREE_MIN_FREE_SPACE) return false;
@@ -159,6 +164,7 @@ bool BzTree::insert(const std::string key, const std::string value) {
 }
 
 bool BzTree::update(const std::string key, const std::string value) {
+  if (DEBUG_PRINT_ACTIONS) printf("--- update %s %s\n", key.c_str(), value.c_str());
   // fail if the size required is larger than min free space, because the key can potentially cause rebalancing issues
   size_t space_required = key.length() + 1 + value.length() + 1;
   if (sizeof(struct NodeMetadata) + space_required > BZTREE_MIN_FREE_SPACE) return false;
@@ -261,6 +267,7 @@ bool BzTree::update(const std::string key, const std::string value) {
 }
 
 std::optional<std::string> BzTree::lookup(const std::string key) {
+  if (DEBUG_PRINT_ACTIONS) printf("--- lookup %s\n", key.c_str());
   // we still need protection against deletion for this
   assert(epoch.Protect().ok());
 
@@ -284,6 +291,7 @@ std::optional<std::string> BzTree::lookup(const std::string key) {
 }
 
 bool BzTree::erase(const std::string key) {
+  if (DEBUG_PRINT_ACTIONS) printf("--- erase %s\n", key.c_str());
   assert(epoch.Protect().ok());
   // todo(optimization): is perform_smo=true or false better here?
   TOID(struct Node) leaf_oid = find_leaf(key, false);

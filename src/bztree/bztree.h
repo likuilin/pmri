@@ -61,7 +61,7 @@ struct NodeHeaderStatusWord {
 #pragma pack(1)
 struct NodeHeader {
   uint32_t node_size    : 32; // note: unused, our nodes are constant size
-  uint32_t sorted_count : 32; // note: unused, we do not have sorted keys yet
+  uint32_t sorted_count : 32;
   struct NodeHeaderStatusWord status_word;
 };
 static_assert(sizeof(struct NodeHeader) == 16);
@@ -197,6 +197,13 @@ class BzTree {
     // returning false means no changes can be made, not necessarily that it failed -
     // retryable failures are retried
     // all of these expect the gc to be already protected
+
+
+    // copy all the key value pairs into a vector of pairs and sort them
+    std::vector<std::pair<std::string, std::string>> copy_out(TOID(struct Node) node_oid);
+    // copy all the key value pairs back into a new node
+    // expects pairs to be sorted
+    TOID(struct Node) copy_in(std::vector<std::pair<std::string, std::string>> pairs);
 
     // compacts node, making deleted key space available and (todo) sorting the keys
     // returns allocated new node, does not delete old node

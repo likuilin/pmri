@@ -6,8 +6,6 @@
 
 #define GLOBAL_EPOCH_OFFSET_BIT (1 << 27)
 
-#define DEBUG_PRINT_ACTIONS 1
-
 namespace pmwcas {
 
 BzTree::BzTree() {

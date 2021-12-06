@@ -22,6 +22,10 @@
 // maximum deleted space before a node is compacted
 #define BZTREE_MAX_DELETED_SPACE 100
 
+// debug options:
+#define DEBUG_PRINT_ACTIONS 1
+#define DEBUG_PRINT_SMOS 1
+
 namespace pmwcas {
 
 // pmem stuff

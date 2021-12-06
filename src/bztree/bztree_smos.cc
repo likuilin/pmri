@@ -1,8 +1,6 @@
 #include "bztree.h"
 #include "include/pmwcas.h"
 
-#define DEBUG_PRINT_SMOS 1
-
 namespace pmwcas {
 
 // since SMOs are all infrequent and slow (hopefully), we implement these simply with vectors in main memory

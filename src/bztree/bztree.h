@@ -175,7 +175,7 @@ class BzTree {
     // helpers for getting and setting the pmdk offset of a TOID
     // note: this is breaking into pmdk internals, but necessary because
     // in the node we want to only store offset pointers
-    static inline void toid_set_offset(TOID(struct Node) target, uint64_t off);
+    static inline void toid_set_offset(TOID(struct Node) *target, uint64_t off);
     static inline uint64_t toid_get_offset(TOID(struct Node) target);
 
     // helper for adding a TOID to a mwcas descriptor
@@ -189,6 +189,9 @@ class BzTree {
     // returns if it fails (only if the node freezes)
     bool swap_node(std::optional<TOID(struct Node)> parent, uint64_t *node_off_ptr,
         TOID(struct Node) old_node, TOID(struct Node) new_node);
+
+    // calculates the free space in a node
+    uint32_t free_space(const struct NodeHeaderStatusWord *sw);
 
     // === structural modifications (SMOs) ===
     // note: all of these invalidate the tree if they return true

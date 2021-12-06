@@ -59,11 +59,18 @@ bool BzTree::swap_node(std::optional<TOID(struct Node)> parent, uint64_t *node_o
   }
 }
 
-void BzTree::toid_set_offset(TOID(struct Node) target, uint64_t off) {
-  target.oid.off = off;
+void BzTree::toid_set_offset(TOID(struct Node) *target, uint64_t off) {
+  target->oid.off = off;
 }
 uint64_t BzTree::toid_get_offset(TOID(struct Node) target) {
   return target.oid.off;
+}
+
+uint32_t BzTree::free_space(const struct NodeHeaderStatusWord *sw) {
+  return sizeof(struct Node)
+            - sizeof(struct NodeHeader)
+            - (sw->record_count * sizeof(struct NodeMetadata))
+            - sw->block_size;
 }
 
 std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, uint16_t>>
@@ -78,8 +85,8 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
     const struct NodeHeaderStatusWord *root_sw = &D_RO(md->root_node)->header.status_word;
     // root, of course, cannot be merged with a sibling (it has no siblings)
     bool root_compact = root_sw->delete_size > BZTREE_MAX_DELETED_SPACE;
-    bool root_split = sizeof(struct Node) - sizeof(struct NodeHeader) - root_sw->block_size -
-                        (root_sw->record_count*(sizeof(struct NodeMetadata))) < BZTREE_MIN_FREE_SPACE;
+    bool root_split = sizeof(struct Node) < BZTREE_MIN_FREE_SPACE + sizeof(struct NodeHeader) + root_sw->block_size +
+                        (root_sw->record_count*(sizeof(struct NodeMetadata)));
 
     // root split needs to be a special case because we modify height, so the root cannot be swapped with swap_node
     // todo(optimization): move root_compact out of here, it's needlessly complex (no new md needed, and with it, no
@@ -127,7 +134,6 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
         // destroy old metadata and root
         assert(garbage.Push(md, BzTree::DestroyNode, nullptr).ok());
         assert(garbage.Push(D_RW(md->root_node), BzTree::DestroyNode, nullptr).ok());
-        DEBUG_print_tree();
       } else {
         // destroy new metadata and root and children, if any
         POBJ_FREE(md_new);
@@ -153,6 +159,10 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
   uint64_t *parent_off_ptr = &md->root_node.oid.off;
   std::optional<TOID(struct Node)> grandparent = std::nullopt;
 
+  // saved for later
+  struct NodeHeaderStatusWord *child_sw;
+  size_t child_fs;
+
   // perform height-1 dereferences to get to leaf
   uint64_t h=0;
   while (true) { // for (uint64_t h=0; h<md->height-1; h++) {
@@ -166,31 +176,52 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
 
     // todo(optimization): binary search sorted keys, inner nodes are guaranteed to
     // be sorted because they are immutable
+    // here we also get the left and right siblings to consider merging
+    TOID(struct Node) sib_left = TOID_NULL(struct Node), sib_right = TOID_NULL(struct Node);
     uint16_t i;
     {
       const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(parent_header + 1);
-      // the first key does not matter, the value of it represents everything less than the second key
+      // the first key does not matter, it is zero for consistency
+      // so we check starting at the second key
       // we want the last key less than the one past the one, which is one minus the first key that's <= it
       for (i=1; i<parent_sw.record_count; i++) {
         assert(nmd[i].total_len == nmd[i].key_len + 8); // optimization to use 8 for value len
-        if (strcmp(&D_RO(parent)->body[nmd[i].offset], key.c_str()) < 0) break;
+        if (strcmp(&D_RO(parent)->body[nmd[i].offset], key.c_str()) >= 0) break;
       }
-      i--;
+      // disregard last limit, it is basically infinity
+      if (i == parent_sw.record_count) i--;
       child_off_ptr = (uint64_t*)&D_RW(parent)->body[nmd[i].offset + nmd[i].key_len];
 
       // dereference child (first set is to set pool id for first iteration)
       child = parent;
-      toid_set_offset(child, *child_off_ptr);
+      toid_set_offset(&child, *child_off_ptr);
+      child_sw = &D_RW(child)->header.status_word;
+      child_fs = free_space(child_sw);
+
+      // dereference left and right and check free space, setting it back to null if there's not enough space to merge
+      // todo(safety): we don't actually hold a lock over our siblings here, so, what if they change between this check
+      // and when we do actual merging? is merging an action that can fail, unlike the other node operations? sigh
+      // left zero does not actually have a child, remember
+      if (i > 1) {
+        sib_left = parent;
+        toid_set_offset(&sib_left, *(uint64_t*)&D_RW(parent)->body[nmd[i-1].offset + nmd[i-1].key_len]);
+        if (child_fs + free_space(&D_RO(sib_left)->header.status_word) < BZTREE_MIN_FREE_SPACE + sizeof(struct Node))
+          sib_left = TOID_NULL(struct Node);
+      }
+      if (i < parent_sw.record_count-1) {
+        sib_right = parent;
+        toid_set_offset(&sib_right, *(uint64_t*)&D_RW(parent)->body[nmd[i+1].offset + nmd[i+1].key_len]);
+        if (child_fs + free_space(&D_RO(sib_right)->header.status_word) < BZTREE_MIN_FREE_SPACE + sizeof(struct Node))
+          sib_right = TOID_NULL(struct Node);
+      }
     }
 
     // do SMOs on child if needed
     if (perform_smo) {
-      struct NodeHeaderStatusWord *child_sw = &D_RW(child)->header.status_word;
       bool do_compact = child_sw->delete_size > BZTREE_MAX_DELETED_SPACE;
-      size_t free_space = sizeof(struct Node) - sizeof(struct NodeHeader) - child_sw->block_size -
-                            (child_sw->record_count*(sizeof(struct NodeMetadata)));
-      bool do_split = free_space < BZTREE_MIN_FREE_SPACE;
-      bool do_merge = free_space > BZTREE_MAX_FREE_SPACE;
+      bool do_split = child_fs < BZTREE_MIN_FREE_SPACE;
+      bool do_merge = !TOID_IS_NULL(sib_left) || !TOID_IS_NULL(sib_right);
+      // printf("%d c %d s %d m %d %d %d\n", i, do_compact, do_split, do_merge, !TOID_IS_NULL(sib_left), !TOID_IS_NULL(sib_right));
 
       // compact takes priority because it may remove/add need to do splits or merges, and is implicitly done for them
       if (do_compact) {

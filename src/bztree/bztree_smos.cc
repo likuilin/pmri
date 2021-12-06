@@ -112,11 +112,12 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
     // existing parent, so copy most of the keys
     parent_kv = copy_out(*parent);
 
-    // find the index of the node in the parent via first key of child
+    // find the index of the node in the parent
+    // todo(optimization): this is horrible, please fix this by altering the interface to node_split
     auto i = parent_kv.begin();
     while (++i != parent_kv.end()) {
-      // todo(feat): make this less questionable, first three bits are used by pmwcas, though, ick
-      if ((*(uint64_t*)i->second.c_str()) & ~0x7 == node.oid.off) break;
+      // make this less questionable, first three bits are used by pmwcas, though, ick
+      if (((*(uint64_t*)i->second.c_str()) & ~0x7) == (node.oid.off & ~0x7)) break;
     }
     assert(i != parent_kv.end());
 

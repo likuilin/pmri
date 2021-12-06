@@ -115,9 +115,10 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
     // find the index of the node in the parent
     // todo(optimization): this is horrible, please fix this by altering the interface to node_split
     auto i = parent_kv.begin();
-    while (++i != parent_kv.end()) {
+    while (i != parent_kv.end()) {
       // make this less questionable, first three bits are used by pmwcas, though, ick
       if (((*(uint64_t*)i->second.c_str()) & ~0x7) == (node.oid.off & ~0x7)) break;
+      i++;
     }
     assert(i != parent_kv.end());
 
@@ -131,16 +132,45 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
     parent_kv.push_back(std::make_pair(left.back().first, left_ptr));
     parent_kv.push_back(std::make_pair(right.back().first, right_ptr));
   }
-  TOID(struct Node) new_parent_oid = copy_in(parent_kv);
-  return std::make_pair(new_parent_oid, std::make_pair(new_left_oid, new_right_oid));
+  TOID(struct Node) new_parent = copy_in(parent_kv);
+  return std::make_pair(new_parent, std::make_pair(new_left_oid, new_right_oid));
 }
 
-TOID(struct Node) BzTree::node_merge(TOID(struct Node) parent, uint16_t idx,
-    TOID(struct Node) ca, TOID(struct Node) chb) {
+std::pair<TOID(struct Node), TOID(struct Node)> BzTree::node_merge(TOID(struct Node) parent,
+    TOID(struct Node) merge_left, TOID(struct Node) merge_right) {
   if (DEBUG_PRINT_SMOS) printf("--- merge\n");
-  assert(0);
-  // todo(req): impl
-  return parent;
+
+  // copy out parent for modifying
+  auto parent_kv = copy_out(parent);
+
+  // copy out both children - we've kept the right value meaningful, so we can just concat them
+  auto sorted_all = copy_out(merge_left);
+  auto sorted_right = copy_out(merge_right);
+  std::move(sorted_right.begin(), sorted_right.end(), std::back_inserter(sorted_all));
+
+  // find the index of the left node in the parent
+  // todo(optimization): this is horrible, please fix this by altering the interface to node_merge
+  auto i = parent_kv.begin();
+  while (i != parent_kv.end()) {
+    // make this less questionable, first three bits are used by pmwcas, though, ick
+    if (((*(uint64_t*)i->second.c_str()) & ~0x7) == (merge_left.oid.off & ~0x7)) break;
+    i++;
+  }
+  assert(i != parent_kv.end());
+
+  // make new child and a str-kinda pointer to it
+  TOID(struct Node) new_child = copy_in(sorted_all);
+  std::string child_ptr((char*)&new_child.oid.off, 8);
+
+  // replace right node with pointer to new child, keeping key
+  i[1] = std::make_pair(i->first, child_ptr);
+
+  // delete the left node outright
+  parent_kv.erase(i);
+  
+  // all done
+  TOID(struct Node) new_parent = copy_in(parent_kv);
+  return std::make_pair(new_parent, new_child);
 }
 
 }  // namespace pmwcas

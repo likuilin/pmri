@@ -19,9 +19,6 @@
 // since that introduces a variably sized data structure depending on the height
 #define BZTREE_MIN_FREE_SPACE 48
 
-// max free space before a node is merged
-#define BZTREE_MAX_FREE_SPACE 128
-
 // maximum deleted space before a node is compacted
 #define BZTREE_MAX_DELETED_SPACE 100
 
@@ -222,11 +219,10 @@ class BzTree {
         node_split(std::optional<TOID(struct Node)> parent, TOID(struct Node) node);
 
     // merges sibling nodes
-    // takes the parent node and the index of the first of the two children, and the two children
-    // this is so that our pmwcas can ensure that the children are what they used to be
-    // returns allocated new parent, does not delete old nodes
+    // takes the parent node and two children to be merged
+    // returns the two allocated nodes, parent and new child, does not delete old nodes
     // new parent must be spliced into grandparent of the merged nodes
-    TOID(struct Node) node_merge(TOID(struct Node) parent, uint16_t idx,
-        TOID(struct Node) ca, TOID(struct Node) chb);
+    std::pair<TOID(struct Node), TOID(struct Node)> node_merge(TOID(struct Node) parent,
+        TOID(struct Node) merge_left, TOID(struct Node) merge_right);
 };
 }  // namespace pmwcas

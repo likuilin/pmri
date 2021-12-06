@@ -221,7 +221,6 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
       bool do_compact = child_sw->delete_size > BZTREE_MAX_DELETED_SPACE;
       bool do_split = child_fs < BZTREE_MIN_FREE_SPACE;
       bool do_merge = !TOID_IS_NULL(sib_left) || !TOID_IS_NULL(sib_right);
-      // printf("%d c %d s %d m %d %d %d\n", i, do_compact, do_split, do_merge, !TOID_IS_NULL(sib_left), !TOID_IS_NULL(sib_right));
 
       // compact takes priority because it may remove/add need to do splits or merges, and is implicitly done for them
       if (do_compact) {
@@ -259,7 +258,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
         return std::nullopt;
       }
 
-      if (do_split || do_merge) {
+      if (do_split) {
         // opportunistically ensure parent and grandparent are unfrozen
         if (parent_sw.frozen) return std::nullopt;
         if (grandparent.has_value() && D_RW(*grandparent)->header.status_word.frozen) return std::nullopt;
@@ -276,9 +275,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
         desc->AddEntry((uint64_t*)child_sw, *(uint64_t*)&sw_old, *(uint64_t*)&sw);
         desc->AddEntry((uint64_t*)&parent_header->status_word, *(uint64_t*)&parent_sw, *(uint64_t*)&parent_sw_new);
         if (!desc->MwCAS()) return std::nullopt;
-      }
 
-      if (do_split) {
         // perform the split
         auto [new_parent, new_children] = node_split(parent, child);
 
@@ -303,27 +300,60 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
       }
 
       if (do_merge) {
-        // todo(req): identify which way to merge, left or right
-        /*
+        // figure out which sibling to merge
+        TOID(struct Node) merge_left, merge_right;
+        if (!TOID_IS_NULL(sib_left)) {
+          merge_left = sib_left;
+          merge_right = child;
+        } else if (!TOID_IS_NULL(sib_right)) {
+          merge_left = child;
+          merge_right = sib_right;
+        } else assert(0);
+
+        // opportunistically ensure parent and grandparent are unfrozen
+        if (parent_sw.frozen) return std::nullopt;
+        if (grandparent.has_value() && D_RW(*grandparent)->header.status_word.frozen) return std::nullopt;
+
+        // freeze the nodes and the parent (deviation from paper)
+        struct NodeHeaderStatusWord sw_left_old = D_RO(merge_left)->header.status_word;
+        struct NodeHeaderStatusWord sw_right_old = D_RO(merge_right)->header.status_word;
+        if (sw_left_old.frozen) return std::nullopt;
+        if (sw_right_old.frozen) return std::nullopt;
+
+        // ensure that there's still enough space if we merged them now (previous check was opportunistic)
+        if (free_space(&sw_left_old) + free_space(&sw_right_old) < BZTREE_MIN_FREE_SPACE + sizeof(struct Node)) return std::nullopt;
+
+        // set both to frozen, and parent
+        struct NodeHeaderStatusWord sw_left = sw_left_old, sw_right = sw_right_old, parent_sw_new = parent_sw;
+        sw_left.frozen = sw_right.frozen = parent_sw_new.frozen = 1;
+
+        auto *desc = desc_pool->AllocateDescriptor();
+        assert(desc);
+        desc->AddEntry((uint64_t*)&D_RW(merge_left)->header.status_word, *(uint64_t*)&sw_left_old, *(uint64_t*)&sw_left);
+        desc->AddEntry((uint64_t*)&D_RW(merge_right)->header.status_word, *(uint64_t*)&sw_right_old, *(uint64_t*)&sw_right);
+        desc->AddEntry((uint64_t*)&parent_header->status_word, *(uint64_t*)&parent_sw, *(uint64_t*)&parent_sw_new);
+        if (!desc->MwCAS()) return std::nullopt;
+
         // perform the merge
-        TOID(struct Node) new_parent = node_merge(parent, child);
+        auto [new_parent, new_child] = node_merge(parent, merge_left, merge_right);
 
         // swap the new parent in
         if (swap_node(grandparent, parent_off_ptr, parent, new_parent)) {
           // success, delete the old nodes
-          if (new_children.has_value()) {
-            assert(garbage.Push((void*)D_RW(new_children->first), BzTree::DestroyNode, nullptr).ok());
-            assert(garbage.Push((void*)D_RW(new_children->second), BzTree::DestroyNode, nullptr).ok());
-          }
+          assert(garbage.Push((void*)D_RW(merge_left), BzTree::DestroyNode, nullptr).ok());
+          assert(garbage.Push((void*)D_RW(merge_right), BzTree::DestroyNode, nullptr).ok());
           assert(garbage.Push((void*)D_RW(parent), BzTree::DestroyNode, nullptr).ok());
         } else {
           // failure should happen only when the grandparent node freezes
           // we can just unfreeze the nodes directly safely because only this thread could have frozen them, see above
+          D_RW(merge_left)->header.status_word.frozen = 0;
+          D_RW(merge_right)->header.status_word.frozen = 0;
           parent_header->status_word.frozen = 0;
 
+          POBJ_FREE(D_RW(new_child));
           POBJ_FREE(D_RW(new_parent));
         }
-        */
+
         // whether or not it worked, return nullopt to re-traverse
         return std::nullopt;
       }

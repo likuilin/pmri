@@ -48,7 +48,9 @@ void BzTree::DEBUG_print_tree(TOID(struct Node) node_oid /*= TOID_NULL(struct No
   const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(header + 1);
 
   for (size_t i=0; i<header->status_word.record_count; i++) {
-    if (h != height) {
+    if (!nmd[i].visible) {
+      printf("%*skey=%s (deleted)\n", h*2, "", &node->body[nmd[i].offset]);
+    } else if (h != height) {
       // inner node
       printf("%*skey=%s\n", h*2, "", &node->body[nmd[i].offset]);
 

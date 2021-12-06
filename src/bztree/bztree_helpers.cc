@@ -136,6 +136,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
         assert(garbage.Push(D_RW(md->root_node), BzTree::DestroyNode, nullptr).ok());
       } else {
         // destroy new metadata and root and children, if any
+        BENCH_SMO_failures++;
         POBJ_FREE(md_new);
         POBJ_FREE(D_RW(md_new->root_node));
         if (new_children.has_value()) {
@@ -251,6 +252,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
           // the adjacent fields of the struct are not going to be modified by any other thread while it is frozen
           child_sw->frozen = 0;
 
+          BENCH_SMO_failures++;
           POBJ_FREE(D_RW(new_child));
         }
 
@@ -290,6 +292,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
           parent_header->status_word.frozen = 0;
           child_sw->frozen = 0;
 
+          BENCH_SMO_failures++;
           POBJ_FREE(D_RW(new_children.first));
           POBJ_FREE(D_RW(new_children.second));
           POBJ_FREE(D_RW(new_parent));
@@ -350,6 +353,7 @@ std::optional<std::tuple<TOID(struct Node), std::optional<TOID(struct Node)>, ui
           D_RW(merge_right)->header.status_word.frozen = 0;
           parent_header->status_word.frozen = 0;
 
+          BENCH_SMO_failures++;
           POBJ_FREE(D_RW(new_child));
           POBJ_FREE(D_RW(new_parent));
         }

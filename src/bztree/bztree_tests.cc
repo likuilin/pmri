@@ -3,6 +3,7 @@
 #include "bztree.h"
 #include "include/pmwcas.h"
 #include <random>
+#include <ctime>
 
 namespace pmwcas {
 namespace test {
@@ -240,6 +241,67 @@ GTEST_TEST(BzTreeTest, LookupRandomRepeating) {
     ASSERT_TRUE(v) << "key=" << _kid(i) << " is missing";
     ASSERT_TRUE(*v == _vid(values[i]))
         << "key=" << _kid(i) << " should have the value v=" << _vid(values[i]);
+  }
+}
+
+GTEST_TEST(BzTreeTest, BasicBenchmark) {
+  std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+
+  t->tree.BENCH_SMO_compact = 0;
+  t->tree.BENCH_SMO_split = 0;
+  t->tree.BENCH_SMO_merge = 0;
+  t->tree.BENCH_SMO_failures = 0;
+
+  std::vector<std::string> str_lookup;
+  str_lookup.reserve(10000);
+  for (int i=0; i<10000; i++) str_lookup.push_back(std::to_string(i));
+
+  for (int i=0; i<3; i++) {
+    // Insert & update 10k keys at random
+    std::mt19937_64 engine{0};
+    std::uniform_int_distribution<uint64_t> key_distr(0, 10000);
+    // std::vector<uint64_t> values(10000);
+  
+    std::cout << "time\tops\tcompact\tsplit\tmerge\tfail" << std::endl;
+    std::cout << std::time(nullptr) << " insert start" << std::endl;
+    for (auto i = 1ul; i < 10000; ++i) {
+      if (i % 1000 == 0) {
+        std::cout << std::time(nullptr) << "\t" << i << "\t"
+          << t->tree.BENCH_SMO_compact  << "\t"
+          << t->tree.BENCH_SMO_split    << "\t"
+          << t->tree.BENCH_SMO_merge    << "\t"
+          << t->tree.BENCH_SMO_failures << std::endl;
+      }
+      uint64_t rand_key = key_distr(engine);
+      // values[rand_key] = i;
+      // note: this may fail because of duplicate keys, it is fine
+      t->tree.insert(str_lookup[rand_key], str_lookup[i]);
+    }
+    std::cout << std::time(nullptr) << " insert finish, lookup start" << std::endl;
+  
+    for (auto i = 0ul; i < 10000; ++i) {
+      if (i % 1000 == 0) {
+        std::cout << std::time(nullptr) << "\t" << i << "\t"
+          << t->tree.BENCH_SMO_compact  << "\t"
+          << t->tree.BENCH_SMO_split    << "\t"
+          << t->tree.BENCH_SMO_merge    << "\t"
+          << t->tree.BENCH_SMO_failures << std::endl;
+      }
+      volatile auto v = t->tree.lookup(str_lookup[i]);
+    }
+    std::cout << std::time(nullptr) << " lookups finish, erase start" << std::endl;
+  
+    for (auto i = 0ul; i < 10000; ++i) {
+      if (i % 1000 == 0) {
+        std::cout << std::time(nullptr) << "\t" << i << "\t"
+          << t->tree.BENCH_SMO_compact  << "\t"
+          << t->tree.BENCH_SMO_split    << "\t"
+          << t->tree.BENCH_SMO_merge    << "\t"
+          << t->tree.BENCH_SMO_failures << std::endl;
+      }
+      t->tree.erase(str_lookup[i]);
+    }
+    std::cout << std::time(nullptr) << " erase finish" << std::endl;
   }
 }
 

@@ -62,12 +62,14 @@ TOID(struct Node) BzTree::copy_in(std::vector<std::pair<std::string, std::string
 
 TOID(struct Node) BzTree::node_compact(TOID(struct Node) node_oid) {
   if (DEBUG_PRINT_SMOS) printf("--- compact\n");
+  BENCH_SMO_compact++;
   // in and out, real quick, 20 minute adventure
   return copy_in(copy_out(node_oid));
 }
 
 std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
     BzTree::node_split(std::optional<TOID(struct Node)> parent, TOID(struct Node) node) {
+  BENCH_SMO_split++;
   if (DEBUG_PRINT_SMOS) printf("--- split\n");
   // this might be a child, so we don't know that the keys are sorted
   auto sorted = copy_out(node);
@@ -136,6 +138,7 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
 
 std::pair<TOID(struct Node), TOID(struct Node)> BzTree::node_merge(TOID(struct Node) parent,
     TOID(struct Node) merge_left, TOID(struct Node) merge_right) {
+  BENCH_SMO_merge++;
   if (DEBUG_PRINT_SMOS) printf("--- merge\n");
 
   // copy out parent for modifying

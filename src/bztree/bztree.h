@@ -9,7 +9,7 @@
 // size in bytes of each node
 // this should be = 16 + 16*(num keys) + total key len
 // 16 for header, per key: 8 for metadata, 8 for value ptr, variable for key 
-#define BZTREE_NODE_SIZE 256
+#define BZTREE_NODE_SIZE 4096
 
 // minimum free space for node to not be split during non-read traversal
 // warning: keys larger than this minus 16 (nmd + child ptr) currently cannot be inserted
@@ -17,10 +17,10 @@
 // that the large key needs to be propagated upwards every time we traverse the tree for an insertion, right
 // but, on the other hand, we don't want to have to keep track of /all/ the ancestors during traversal
 // since that introduces a variably sized data structure depending on the height
-#define BZTREE_MIN_FREE_SPACE 48
+#define BZTREE_MIN_FREE_SPACE 768
 
 // maximum deleted space before a node is compacted
-#define BZTREE_MAX_DELETED_SPACE 100
+#define BZTREE_MAX_DELETED_SPACE 1600
 
 // debug options:
 #define DEBUG_PRINT_ACTIONS 0
@@ -105,6 +105,11 @@ class BzTree {
   public:
     BzTree();
     ~BzTree();
+
+    uint64_t BENCH_SMO_compact;
+    uint64_t BENCH_SMO_split;
+    uint64_t BENCH_SMO_merge;
+    uint64_t BENCH_SMO_failures;
 
     // insert, update, lookup, erase
     // these return false on failure, the user may retry if they want

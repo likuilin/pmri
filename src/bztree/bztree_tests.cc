@@ -9,7 +9,8 @@ namespace test {
 // most test patterns shamelessly borrowed from lab 3's BTree tests
 
 // for testing: key len is 8 and val len is 8, so 10 keys is 16+16*10+8*10 = 256 bytes exactly
-#define BZTREE_CAPACITY 10
+// then minus two for the free threshold
+#define BZTREE_CAPACITY 8
 
 struct SingleThreadTest {
   BzTree tree;
@@ -75,8 +76,6 @@ GTEST_TEST(BzTreeTest, LookupSingleLeaf) {
     ASSERT_TRUE(v) << "key=" << kid << " is missing";
     ASSERT_TRUE(v == vid) << "key=" << kid << " wrong value";
   }
-
-  ASSERT_FALSE(t->tree.insert("key", "value")) << "insertion causing node split";
 }
 
 GTEST_TEST(BzTreeTest, CompactSingleLeaf) {
@@ -88,11 +87,9 @@ GTEST_TEST(BzTreeTest, CompactSingleLeaf) {
   for (auto i = 0; i < BZTREE_CAPACITY*3; ++i) {
     std::string kid = _kid(i);
     std::string vid = _vid(i);
-    printf("Insert\n");
     t->tree.insert(kid, vid);
     ASSERT_TRUE(t->tree.lookup(kid))
         << "searching for the just inserted key k=" << kid << " yields nothing";
-    printf("Erase\n");
     t->tree.erase(kid);
     ASSERT_FALSE(t->tree.lookup(kid))
         << "searching for the just erased key k=" << kid << " yields something";

@@ -18,7 +18,7 @@
 // that the large key needs to be propagated upwards every time we traverse the tree for an insertion, right
 // but, on the other hand, we don't want to have to keep track of /all/ the ancestors during traversal
 // since that introduces a variably sized data structure depending on the height
-#define BZTREE_MIN_FREE_SPACE 40
+#define BZTREE_MIN_FREE_SPACE 48
 
 // max free space before a node is merged
 #define BZTREE_MAX_FREE_SPACE 128

@@ -10,9 +10,6 @@ TOID(struct Node) BzTree::node_compact(TOID(struct Node) node_oid) {
   POBJ_ZNEW(pop, &new_node_oid, struct Node);
   const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(&node->body);
 
-  printf("Compacting\n");
-  DEBUG_print_node(node);
-
   struct Node *new_node = D_RW(new_node_oid);
   struct NodeMetadata *new_nmd = reinterpret_cast<struct NodeMetadata*>(&new_node->body);
 
@@ -37,10 +34,6 @@ TOID(struct Node) BzTree::node_compact(TOID(struct Node) node_oid) {
     pmemobj_memcpy_persist(pop, &new_node->body[offset], &node->body[nmd[i].offset], nmd[i].total_len);
   }
 
-  printf("Compacting done\n");
-  DEBUG_print_node(new_node);
-
-          printf("????????????????a\n");
   return new_node_oid;
 }
 

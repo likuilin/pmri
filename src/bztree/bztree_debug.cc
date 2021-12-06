@@ -3,7 +3,7 @@
 namespace pmwcas {
 
 void BzTree::DEBUG_print_node(const struct Node* node) {
-  printf("=== node %p / %x ===\n", node, pmemobj_oid(node).off);
+  printf("=== node %p / %lx ===\n", node, pmemobj_oid(node).off);
   if (!node) return;
   printf("node_size:    %d\n", node->header.node_size);
   printf("sorted_count: %d\n", node->header.sorted_count);
@@ -42,7 +42,7 @@ void BzTree::DEBUG_print_tree(TOID(struct Node) node_oid /*= TOID_NULL(struct No
 
   const struct Node *node = D_RO(node_oid);
 
-  printf("%*s%s node %p / %x {\n", h*2-2, "", h == height ? "leaf" : "inner", node, pmemobj_oid(node).off);
+  printf("%*s%s node %p / %lx {\n", h*2-2, "", h == height ? "leaf" : "inner", node, pmemobj_oid(node).off);
 
   const struct NodeHeader *header = &node->header;
   const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(header + 1);
@@ -66,6 +66,27 @@ void BzTree::DEBUG_print_tree(TOID(struct Node) node_oid /*= TOID_NULL(struct No
     }
   }
   printf("%*s}\n", h*2-2, "");
+}
+
+void BzTree::DEBUG_verify_sorted(TOID(struct Node) node_oid) {
+  const struct Node *node = D_RO(node_oid);
+  const struct NodeMetadata *nmd = reinterpret_cast<const struct NodeMetadata*>(&node->body);
+
+  const char *last = &node->body[nmd[0].offset];
+  printf("=-= DEBUG_verify_sorted\n0. %s\n", last);
+  bool sorted = true;
+  for (size_t i=1; i<node->header.status_word.record_count; i++) {
+    if (!nmd[i].visible) continue;
+    const char *curr = &node->body[nmd[i].offset];
+    printf("%ld. %s\n", i, curr);
+    if (strcmp(last, curr) >= 0) sorted = false;
+    last = curr;
+  }
+  if (!sorted) {
+    DEBUG_print_tree();
+    DEBUG_print_node(D_RO(node_oid));
+  }
+  assert(sorted);
 }
 
 }  // namespace pmwcas

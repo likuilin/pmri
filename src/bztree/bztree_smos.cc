@@ -119,12 +119,14 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
       // make this less questionable, first three bits are used by pmwcas, though, ick
       if (((*(uint64_t*)i->second.c_str()) & ~0x7) == (node.oid.off & ~0x7)) break;
     }
+    printf("asdf %d\n", i-parent_kv.begin());
     assert(i != parent_kv.end());
 
-    // an item before i should be inserted with the last key of first
-    parent_kv.insert(i, std::make_pair(left.back().first, left_ptr));
-    // then after that, the item at i should have its value replaced with ptr to right
-    *i = std::make_pair(i->first, right_ptr);
+    // replacing i, we want the left ptr with the key as the rightmost element of the child
+    *i = std::make_pair(left.back().first, left_ptr);
+
+    // and then inserted after i, we want the right ptr, whose key is the rightmost element of the child
+    parent_kv.insert(i+1, std::make_pair(right.back().first, right_ptr));
   } else {
     // new parent, probably new root - in this case we need the first one to have a key of ""
     parent_kv.push_back(std::make_pair("", ""));
@@ -132,7 +134,6 @@ std::pair<TOID(struct Node), std::pair<TOID(struct Node), TOID(struct Node)>>
     parent_kv.push_back(std::make_pair(right.back().first, right_ptr));
   }
   TOID(struct Node) new_parent_oid = copy_in(parent_kv);
-
   return std::make_pair(new_parent_oid, std::make_pair(new_left_oid, new_right_oid));
 }
 

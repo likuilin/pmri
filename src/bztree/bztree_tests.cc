@@ -131,8 +131,11 @@ GTEST_TEST(BzTreeTest, LookupMultipleSplit) {
 
     ASSERT_TRUE(t->tree.lookup(kid))
         << "searching for the just inserted key k=" << kid << " yields nothing";
+        t->tree.DEBUG_print_tree();
+    if (i > 25 && !t->tree.lookup("k000025")) {
+        assert(0);
+    }
   }
-
 
   // Lookup all values
   for (auto i = 0; i < BZTREE_CAPACITY*5; ++i) {

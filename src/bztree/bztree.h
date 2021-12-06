@@ -120,6 +120,7 @@ class BzTree {
     // prints stuff to stdout, without regard for safety
     void DEBUG_print_node(const struct Node* node);
     void DEBUG_print_tree(TOID(struct Node) node_oid = TOID_NULL(struct Node), int h = 0, int height = 0);
+    void DEBUG_verify_sorted(TOID(struct Node) node_oid);
 
   private:
     // we must re-obtain the root pointer on every action, so nothing in pmem can really be "cached"

@@ -1,5 +1,4 @@
 #include <cstdint>
-#include <iterator>
 #include <optional>
 #include <string>
 #include "mwcas/mwcas.h"
@@ -112,27 +111,6 @@ class BzTree {
     bool update(const std::string key, const std::string value);
     std::optional<std::string> lookup(const std::string key);
     bool erase(const std::string key);
-
-    // input iterator for range scan
-    class iterator: public std::iterator<
-                        std::input_iterator_tag,   // iterator_category
-                        const std::string,         // value_type
-                        size_t,                    // difference_type
-                        const std::string*,        // pointer
-                        const std::string          // reference
-                                      >{
-      public:
-        iterator& operator++();
-        iterator operator++(int);
-        bool operator==(iterator other) const;
-        bool operator!=(iterator other) const;
-        const std::string operator*() const;
-    };
-    // these two mirror std::set's range iterators
-    // lower_bound is an iterator for the first element >= key
-    iterator lower_bound(const std::string key);
-    // upper_bound is an iterator for the first element > key
-    iterator upper_bound(const std::string key);
 
     // used to destroy the tree, so that a new tree can be constructed
     // the destructor doesn't actually destroy the tree, because it is saved in pmem

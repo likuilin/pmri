@@ -2,6 +2,7 @@
 #include "common/allocator_internal.h"
 #include "bztree.h"
 #include "include/pmwcas.h"
+#include <random>
 
 namespace pmwcas {
 namespace test {
@@ -178,6 +179,67 @@ GTEST_TEST(BzTreeTest, LookupMultiLevelSplitErase) {
     auto v = t->tree.lookup(kid);
     ASSERT_TRUE(v) << "key=" << kid << " is missing";
     ASSERT_TRUE(v == vid) << "key=" << kid << " wrong value";
+  }
+}
+
+GTEST_TEST(BzTreeTest, LookupRandomNonRepeating) {
+  std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+  auto n = 10 * BZTREE_CAPACITY;
+
+  // Generate random non-repeating key sequence
+  std::vector<uint64_t> keys(n);
+  std::iota(keys.begin(), keys.end(), n);
+  std::mt19937_64 engine(0);
+  std::shuffle(keys.begin(), keys.end(), engine);
+
+  // Insert values
+  for (auto i = 0ul; i < n; ++i) {
+    t->tree.insert(_kid(keys[i]), _vid(2 * keys[i]));
+    ASSERT_TRUE(t->tree.lookup(_kid(keys[i])))
+        << "searching for the just inserted key k=" << _kid(keys[i])
+        << " after i=" << i << " inserts yields nothing";
+  }
+
+  // Lookup all values
+  for (auto i = 0ul; i < n; ++i) {
+    auto v = t->tree.lookup(_kid(keys[i]));
+    ASSERT_TRUE(v) << "key=" << _kid(keys[i]) << " is missing";
+    ASSERT_TRUE(*v == _vid(2 * keys[i]))
+        << "key=" << _kid(keys[i]) << " should have the value v=" << _vid(2 * keys[i]);
+  }
+}
+
+GTEST_TEST(BzTreeTest, LookupRandomRepeating) {
+  std::unique_ptr<SingleThreadTest> t(new SingleThreadTest());
+  auto n = 10 * BZTREE_CAPACITY;
+
+  // Insert & updated 100 keys at random
+  std::mt19937_64 engine{0};
+  std::uniform_int_distribution<uint64_t> key_distr(0, 99);
+  std::vector<uint64_t> values(100);
+
+  for (auto i = 1ul; i < n; ++i) {
+    uint64_t rand_key = key_distr(engine);
+    values[rand_key] = i;
+    t->tree.erase(_kid(rand_key));
+    t->tree.insert(_kid(rand_key), _vid(i));
+
+    auto v = t->tree.lookup(_kid(rand_key));
+    ASSERT_TRUE(v) << "searching for the just inserted key k=" << _kid(rand_key)
+                   << " after i=" << (i - 1) << " inserts yields nothing";
+    ASSERT_TRUE(*v == _vid(i)) << "overwriting k=" << _kid(rand_key) << " with value v=" << _vid(i)
+                     << " failed";
+  }
+
+  // Lookup all values
+  for (auto i = 0ul; i < 100; ++i) {
+    if (values[i] == 0) {
+      continue;
+    }
+    auto v = t->tree.lookup(_kid(i));
+    ASSERT_TRUE(v) << "key=" << _kid(i) << " is missing";
+    ASSERT_TRUE(*v == _vid(values[i]))
+        << "key=" << _kid(i) << " should have the value v=" << _vid(values[i]);
   }
 }
 

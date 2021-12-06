@@ -23,8 +23,8 @@
 #define BZTREE_MAX_DELETED_SPACE 100
 
 // debug options:
-#define DEBUG_PRINT_ACTIONS 1
-#define DEBUG_PRINT_SMOS 1
+#define DEBUG_PRINT_ACTIONS 0
+#define DEBUG_PRINT_SMOS 0
 
 namespace pmwcas {
 

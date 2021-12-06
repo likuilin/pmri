@@ -161,7 +161,7 @@ std::pair<TOID(struct Node), TOID(struct Node)> BzTree::node_merge(TOID(struct N
   std::string child_ptr((char*)&new_child.oid.off, 8);
 
   // replace right node with pointer to new child, keeping key
-  i[1] = std::make_pair(i->first, child_ptr);
+  i[1] = std::make_pair(i[1].first, child_ptr);
 
   // delete the left node outright
   parent_kv.erase(i);

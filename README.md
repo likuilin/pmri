@@ -1,8 +1,10 @@
-BzTree paper https://dl.acm.org/doi/10.1145/3164135.3164147
+# BzTree implementation with PMwCAS
 
-It uses PMwCAS and references this one https://ieeexplore.ieee.org/document/8509270
+This is an experimental [BzTree](https://dl.acm.org/doi/10.1145/3164135.3164147) implementation using [PMwCAS](https://ieeexplore.ieee.org/document/8509270)
 
-For simplicity of building, we just fork pmwcas and build our application inside it as another example application.
+For simplicity of building, we just forked pmwcas and built our application inside it as another example application.
+
+This was implemented as a final project in Fall 2021 for [CS 6422](https://www.cc.gatech.edu/~jarulraj/courses/4420-f21/) at Georgia Tech, taught by Prof. Arulraj. See our [final paper](./Team-14-final.pdf) for more information.
 
 # Setup
 
